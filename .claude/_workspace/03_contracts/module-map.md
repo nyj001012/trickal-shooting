@@ -18,7 +18,7 @@
 | `@/game/systems/collision` | `aabbOverlap` | `AabbOverlap` | `pure` | `node` |
 | `@/game/systems/collision` | `detectCollisions` | `DetectCollisions` | `pure` | `node` |
 | `@/game/systems/movement` | `applyMovement` | `ApplyMovement` | `mutates-arg(world)` | `node` |
-| `@/game/systems/weapon` | `fireWeapon` | `FireWeapon` | `mutates-arg(world)` | `node` |
+| `@/game/systems/weapon` | `fireWeapon` | `FireWeapon` | `mutates-arg(world)`, 실제 스킬탄 생성 시 주입 `Rng` 1회 소비 | `node` |
 | `@/game/systems/spawner` | `spawnTick` | `SpawnTick` | `mutates-arg(world)` | `node` |
 | `@/game/systems/combat` | `applyCombat` | `ApplyCombat` | `mutates-arg(world)` | `node` |
 | `@/game/systems/progression` | `applyProgression` | `ApplyProgression` | `mutates-arg(world)` | `node` |

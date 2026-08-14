@@ -62,6 +62,10 @@ export interface SkillProjectileBalance {
   readonly height: number;
   /** px/sec; magnitude of the homing velocity vector (D-2). */
   readonly speed: number;
+  /** px/sec; maximum absolute initial Y velocity before steering (D-2). */
+  readonly initialSpreadSpeedY: number;
+  /** 0-1 per fixed tick; interpolation factor from current to desired velocity (D-2). */
+  readonly turnFactor: number;
   /** count; HP damage dealt to an enemy on hit. */
   readonly damage: number;
   /** sec; auto-expiry safety net. */
