@@ -237,9 +237,19 @@
 
 ## 완료 조건
 
-- [ ] 일반탄·스킬탄 타입/배열/이동/충돌/전투/렌더 경로 분리
-- [ ] Space 스킬 중 일반탄 중지 및 해제·MANA 고갈 후 자동 재개
-- [ ] MANA 자연 회복·스킬 소모·일반탄 처치 보상과 0~100 포화
-- [ ] lint, typecheck, unit/component test, coverage, format, build 통과
-- [ ] Space 스킬과 MANA 회복 Chromium E2E 통과
-- [ ] 작업 브랜치 Push 및 이슈 #11을 연결한 PR 생성
+- [x] 일반탄·스킬탄 타입/배열/이동/충돌/전투/렌더 경로 분리
+- [x] Space 스킬 중 일반탄 중지 및 해제·MANA 고갈 후 자동 재개
+- [x] MANA 자연 회복·스킬 소모·일반탄 처치 보상과 0~100 포화
+- [x] lint, typecheck, unit/component test, coverage, format, build 통과
+- [x] Space 스킬과 MANA 회복 Chromium E2E 통과
+- [x] 작업 브랜치 Push 및 이슈 #11을 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #12 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/12 |
+| 기준/작업 브랜치 | `main` ← `feature/11-projectile-skill-separation` |
+| 상태 | Open, MERGEABLE |
+| CI | 등록된 원격 체크 없음(`statusCheckRollup: []`) |
