@@ -126,3 +126,45 @@
 | URL | https://github.com/nyj001012/trickal-shooting/pull/6 |
 | 기준/작업 브랜치 | `main` ← `feature/5-responsive-fullpage-layout` |
 | 상태 | Open |
+
+---
+
+# Issue PM 산출 보고서 — Task #7
+
+- **작성:** Codex (run-pipeline)
+- **일시:** 2026-08-14
+- **플랫폼:** GitHub
+
+## 생성된 이슈
+
+| 항목 | 값 |
+| --- | --- |
+| 이슈 번호 | #7 |
+| URL | https://github.com/nyj001012/trickal-shooting/issues/7 |
+| 제목 | `[Gameplay] 적 좌측 이탈 시 생명 감소 제거` |
+| 상태 | Open |
+
+## 파생된 브랜치
+
+| 항목 | 값 |
+| --- | --- |
+| 브랜치명 | `fix/7-enemy-escape-no-damage` |
+| 파생 기준 | 최신 `origin/main` (`948da08`) |
+
+## 완료 조건
+
+- [x] 적 이탈 시 제거만 수행하고 HP·무적 시간·점수·MANA 유지
+- [x] `escapeDamage` 밸런스 계약과 구현 값 제거
+- [x] 이탈 무피해 및 직접 접촉 피해 단위·컴포넌트 테스트 통과
+- [x] 이탈 무피해와 접촉 게임오버·재시작 Chromium E2E 통과
+- [x] lint, typecheck, coverage, format, build 통과
+- [x] 작업 브랜치 Push 및 이슈 #7을 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #8 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/8 |
+| 기준/작업 브랜치 | `main` ← `fix/7-enemy-escape-no-damage` |
+| 상태 | Open |

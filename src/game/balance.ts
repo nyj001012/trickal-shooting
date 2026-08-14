@@ -61,8 +61,6 @@ export const BALANCE = {
     manaGain: 5,
     /** count */
     contactDamage: 1,
-    /** count */
-    escapeDamage: 1,
   },
   spawn: {
     /** sec */

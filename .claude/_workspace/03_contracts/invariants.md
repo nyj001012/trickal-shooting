@@ -1,7 +1,7 @@
 # Invariants & System Execution Order
 
 - **작성:** tech-leader (Phase 2)
-- **근거:** `.claude/_workspace/01_architecture/design.md` v3.1 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
+- **근거:** `.claude/_workspace/01_architecture/design.md` v3.3 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
 - **위치:** 타입으로 표현 불가능한 것(불변식·실행 순서·경계 조건·수용 기준)만 여기 적는다. 타입 자체는 `src/contracts/**`가 SSOT다.
 - **소비자:** `frontend-developer`(구현 시 이 순서를 그대로 조립), `frontend-qa`(이 표만 보고 red 테스트를 작성), `e2e-tester`(브라우저 레벨 시나리오 근거).
 
@@ -102,9 +102,16 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 - 이 불변식 덕분에 스폰과 충돌 판정(`detectCollisions`) 사이에 순서 의존성이 생기지 않는다: 스폰 직후 같은 틱에 충돌 판정이 실행되어도 방금 생성된 적은 절대 히트로 잡히지 않는다.
 - **이 불변식이 성립하려면 `aabbOverlap`이 §2의 엄격 부등식이어야 한다.** 플레이어가 우측 경계에 완전히 붙어 있는 프레임(`player.x + player.width === world.bounds.width === enemy.x`)에서도 겹침이 아니어야 하기 때문이다. 자세한 근거는 §2를 참조.
 
+### INV-ESCAPE-1 — 적 좌측 이탈은 세션에 부수효과가 없음 (D-5)
+
+살아 있는 적을 이동한 뒤 `enemy.x + enemy.width < 0`이면 같은 틱에 `enemy.alive = false`로 표시한다. 이때 `world.session`의 `hp`, `maxHp`, `mana`, `score`, `level`, `status`와 `world.player.invulnRemainSec`는 변경하지 않는다.
+
+- 적 이탈은 처치가 아니므로 SCORE와 MANA를 지급하지 않는다.
+- 이탈한 적은 틱 말미 일괄 필터에서 제거한다.
+- 같은 틱에 다른 적이 플레이어와 직접 접촉하면 `applyCombat`의 접촉 피해만 독립적으로 적용한다.
+
 ### INV-DMG-1 — 무적 시간 중 접촉 피해 상한 (8방향 확정의 파생 규칙)
-임의의 `BalanceConfig.player.invulnSec` 길이 구간 안에서, **접촉 피해(contact damage)로 인한** 플레이어 HP 감소는 최대 1회(=`contactDamage` 1건)이다.
-- **적용 범위 명시(모호성 제거):** 이 불변식은 `applyCombat`의 `PlayerContact` 처리(접촉 피해)에만 적용된다. `applyMovement`의 좌측 이탈 피해(`escapeDamage`, D-5)는 플레이어 위치와 무관하게 발생하는 별개 메커니즘이며 **무적 시간의 영향을 받지 않는다**. 즉 같은 틱/같은 무적 구간 안에서 "접촉 피해 1회"와 "이탈 피해 1회"가 각각 별도로 발생해 HP가 2 감소하는 것은 이 불변식 위반이 **아니다**.
+임의의 `BalanceConfig.player.invulnSec` 길이 구간 안에서, **접촉 피해(contact damage)로 인한** 플레이어 HP 감소는 최대 1회(=`contactDamage` 1건)이다. 적의 좌측 이탈은 `INV-ESCAPE-1`에 따라 HP를 감소시키지 않는다.
 - 무적 시간 중 도착한 접촉(`PlayerContact`)은 **HP는 감소시키지 않지만 해당 적은 제거**한다(플레이어와 겹친 적이 무적 시간 동안 화면에 계속 남아 다시 겹치는 것을 방지). 무적 시간 갱신(재시작)은 실제로 HP가 감소한 접촉이 발생했을 때만 일어난다.
 - 무적 시간은 매 틱 `-= dt`로 감소하며(`Math.max(0, ...)`), 이 감소는 `applyCombat` 맨 처음 단계에서 수행한다(§1의 순서 참고).
 
@@ -146,7 +153,6 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 | `enemy.scoreValue` | `10` | |
 | `enemy.manaGain` | `5` | percent |
 | `enemy.contactDamage` | `1` | |
-| `enemy.escapeDamage` | `1` | |
 | `spawn.initialIntervalSec` | `1.2` | sec |
 | `spawn.intervalDecayPerLevel` | `0.1` | sec |
 | `spawn.minIntervalSec` | `0.35` | sec (하한) |

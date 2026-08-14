@@ -98,7 +98,7 @@ describe('applyMovement — player boundary clamp (INV-MOVE-2)', () => {
   });
 });
 
-describe('applyMovement — enemies move left and escape damage is independent of invulnerability (D-5)', () => {
+describe('applyMovement — enemies move left and disappear without damaging the player (D-5, INV-ESCAPE-1)', () => {
   it('moves every alive enemy left by speed * dt', () => {
     const enemy = makeEnemy({ x: 400, y: 300 });
     const world = makeWorld({ enemies: [enemy] });
@@ -113,36 +113,33 @@ describe('applyMovement — enemies move left and escape damage is independent o
     expect(world.enemies[0].x).toBe(400);
   });
 
-  it('marks an enemy dead and reduces HP by escapeDamage once its right edge crosses the left screen edge', () => {
+  it('marks an enemy dead without changing session or invulnerability once its right edge crosses the left screen edge', () => {
     const escaping = makeEnemy({ x: -1000, width: 28 }); // already far past the left edge
     const world = makeWorld({
+      player: makePlayer({ invulnRemainSec: BALANCE.player.invulnSec / 2 }),
       enemies: [escaping],
-      session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+      session: { hp: 2, maxHp: 3, mana: 15, score: 40, level: 2, status: 'playing' },
     });
+    const sessionBefore = { ...world.session };
+    const invulnBefore = world.player.invulnRemainSec;
+
     applyMovement(world, makeInputState(), DT);
+
     expect(world.enemies[0].alive).toBe(false);
-    expect(world.session.hp).toBe(3 - BALANCE.enemy.escapeDamage);
+    expect(world.session).toEqual(sessionBefore);
+    expect(world.player.invulnRemainSec).toBe(invulnBefore);
   });
 
-  it('applies escape damage even while the player is currently invulnerable — escape damage is a mechanism independent of contact damage (invariants.md INV-DMG-1 scope note)', () => {
-    const escaping = makeEnemy({ x: -1000, width: 28 });
-    const world = makeWorld({
-      player: makePlayer({ invulnRemainSec: BALANCE.player.invulnSec }),
-      enemies: [escaping],
-      session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+  it('keeps an enemy alive while its right edge is exactly on the left boundary', () => {
+    const width = 28;
+    const atBoundaryAfterMovement = makeEnemy({
+      x: -width + BALANCE.enemy.speed * DT,
+      width,
     });
+    const world = makeWorld({ enemies: [atBoundaryAfterMovement] });
     applyMovement(world, makeInputState(), DT);
-    expect(world.session.hp).toBe(3 - BALANCE.enemy.escapeDamage);
-  });
-
-  it('never lets HP from escape damage drop below 0', () => {
-    const escaping = makeEnemy({ x: -1000, width: 28 });
-    const world = makeWorld({
-      enemies: [escaping],
-      session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
-    });
-    applyMovement(world, makeInputState(), DT);
-    expect(world.session.hp).toBe(0);
+    expect(world.enemies[0].x + world.enemies[0].width).toBeCloseTo(0, 10);
+    expect(world.enemies[0].alive).toBe(true);
   });
 });
 

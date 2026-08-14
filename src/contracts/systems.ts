@@ -86,16 +86,15 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *      (INV-MOVE-1), apply it, then clamp both axes to `world.bounds` in the same tick
  *      (INV-MOVE-2).
  *   2. Enemies: move every alive enemy by `-enemySpeed * dt` on x; any enemy whose
- *      right edge has crossed the left screen edge (`x + width < 0`) loses, this same
- *      tick, `alive = false` and reduces `world.session.hp` by
- *      `BalanceConfig.enemy.escapeDamage` (floored at 0). This HP loss is independent
- *      of `world.player.invulnRemainSec` (see invariants.md, INV-DMG-1 scope note).
+ *      right edge has crossed the left screen edge (`x + width < 0`) becomes
+ *      `alive = false` in the same tick without changing HP or any other session field
+ *      (INV-ESCAPE-1).
  *   3. Projectiles: move every alive projectile by `+projectileSpeed * dt` on x and
  *      decrement `lifetimeRemainSec` by `dt`; a projectile whose lifetime has expired or
  *      whose left edge has crossed the right screen edge (`x > world.bounds.width`)
  *      is marked `alive = false`.
  * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].alive,
- *          world.session.hp, world.projectiles[].x, world.projectiles[].lifetimeRemainSec,
+ *          world.projectiles[].x, world.projectiles[].lifetimeRemainSec,
  *          world.projectiles[].alive
  * @module @/game/systems/movement
  */

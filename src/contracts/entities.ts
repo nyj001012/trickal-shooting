@@ -43,7 +43,7 @@ export interface Player extends EntityBase {
   fireCooldownRemainSec: number;
   /**
    * sec; remaining invulnerability window after the last HP-reducing contact hit.
-   * While > 0, contact damage (not escape damage) must not reduce HP again (INV-DMG-1).
+   * While > 0, contact damage must not reduce HP again (INV-DMG-1).
    */
   invulnRemainSec: number;
 }
@@ -64,7 +64,7 @@ export interface Enemy extends EntityBase {
    */
   readonly manaGain: number;
   /**
-   * count; HP damage dealt to the player on direct (non-escape) contact with this enemy.
+   * count; HP damage dealt to the player on direct contact with this enemy.
    * Captured from BalanceConfig at spawn time.
    */
   readonly contactDamage: number;
