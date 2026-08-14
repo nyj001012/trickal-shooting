@@ -200,4 +200,13 @@
 - [x] `InputState.fire`와 Space 키 바인딩 및 오래된 안내 제거
 - [x] 키 입력 없는 적 처치 Chromium E2E 통과
 - [x] lint, typecheck, coverage, format, build 통과
-- [ ] 작업 브랜치 Push 및 이슈 #9를 연결한 PR 생성
+- [x] 작업 브랜치 Push 및 이슈 #9를 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #10 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/10 |
+| 기준/작업 브랜치 | `main` ← `feature/9-player-auto-fire` |
+| 상태 | Open |
