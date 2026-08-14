@@ -44,3 +44,44 @@
 - [x] `<타입>/<이슈번호>-<슬러그>` 브랜치를 최신 기본 브랜치(로컬 main, origin/main의 fast-forward 상위) 기준으로 파생
 - [x] `git branch --show-current`로 기본 브랜치 아님을 확인
 - [x] `git commit`/`git push`/소스 코드 수정 등 권한 밖 명령 미수행 (본 보고서 파일 외 쓰기 없음)
+
+---
+
+# Issue PM 산출 보고서 — Task #3
+
+- **작성:** Codex (run-pipeline)
+- **일시:** 2026-08-14
+- **플랫폼:** GitHub
+
+## 생성된 이슈
+
+| 항목 | 값 |
+| --- | --- |
+| 이슈 번호 | #3 |
+| URL | https://github.com/nyj001012/trickal-shooting/issues/3 |
+| 제목 | `[Tooling] 저장소 전용 Codex run-pipeline 스킬 등록` |
+| 상태 | Open |
+
+## 파생된 브랜치
+
+| 항목 | 값 |
+| --- | --- |
+| 브랜치명 | `chore/3-codex-run-pipeline-skill` |
+| 파생 기준 | 최신 `origin/main` (`9582b53`) |
+
+## 완료 조건
+
+- [x] `.agents/skills/run-pipeline/SKILL.md`와 `agents/openai.yaml`을 저장소 전용 스킬로 등록
+- [x] `$run-pipeline` 명시 호출 및 암시적 호출 메타데이터 제공
+- [x] YAML 구조, 이름/설명 규칙, 저장소 포맷 검증 통과
+- [x] 기존 `.claude/**` 워크플로와 개인 설정 보존
+- [x] 커밋, 원격 푸시, 이슈 #3을 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #4 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/4 |
+| 기준/작업 브랜치 | `main` ← `chore/3-codex-run-pipeline-skill` |
+| 상태 | Open |
