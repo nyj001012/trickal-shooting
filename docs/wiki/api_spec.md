@@ -13,7 +13,7 @@
 | `Player`      | 공통 Box 필드, `fireCooldownRemainSec`, `invulnRemainSec`                          | 플레이어 엔티티                     |
 | `Enemy`       | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`                     | 좌측으로 이동하는 적                |
 | `Projectile`  | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                       | 우측으로 이동하는 투사체            |
-| `InputState`  | `up`, `down`, `left`, `right`, `fire`, `restart`                                   | DOM 코드에서 변환된 의미 기반 입력  |
+| `InputState`  | `up`, `down`, `left`, `right`, `restart`                                           | DOM 코드에서 변환된 의미 기반 입력  |
 | `HudSnapshot` | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                  | React가 구독하는 읽기 전용 투영     |
 
 모든 엔티티는 재사용되지 않는 `id`, 판별자 `kind`, 지연 제거용 `alive`를 갖는다. `Entity`는 `Player | Enemy | Projectile` 판별 유니온이다.
@@ -35,7 +35,7 @@
 | ---------------------------- | ------------------------------------------ | ----------------------------------------- |
 | `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                      |
 | `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음                                      |
-| `@/game/systems/weapon`      | `fireWeapon(world, input, dt): void`       | 쿨다운, 투사체, 다음 ID                   |
+| `@/game/systems/weapon`      | `fireWeapon(world, dt): void`              | 쿨다운, 투사체, 다음 ID                   |
 | `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명, 이탈 적 제거            |
 | `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID             |
 | `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·투사체 생존, SCORE·MANA, 무적 시간 |
@@ -56,6 +56,12 @@
 - 적이 좌측 경계를 완전히 벗어나면 해당 적만 제거하고 HP·무적 시간·SCORE·MANA는 변경하지 않는다.
 - HP 감소는 직접 접촉 피해로만 발생한다.
 - HP는 0 아래로 내려가지 않는다.
+
+### 자동 발사 규칙
+
+- 새 월드는 발사 쿨다운 0으로 시작해 첫 번째 `playing` 틱에 투사체를 즉시 생성한다.
+- 이후 입력과 무관하게 0.3초마다 한 발을 자동 생성하며 투사체는 항상 오른쪽으로 이동한다.
+- 살아 있는 투사체가 최대 60개이면 생성을 생략하고 쿨다운만 다시 시작한다.
 
 ## HUD Store API
 
@@ -85,9 +91,7 @@
 ```ts
 await page.goto('/?e2e=1');
 await page.evaluate(() => window.__TRICKAL_TEST__?.seed(6));
-await page.keyboard.down('Space');
 await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(100));
-await page.keyboard.up('Space');
 ```
 
 ## UI 관측 계약
@@ -112,10 +116,9 @@ await page.keyboard.up('Space');
 | 아래   | `ArrowDown`, `KeyS`  |
 | 왼쪽   | `ArrowLeft`, `KeyA`  |
 | 오른쪽 | `ArrowRight`, `KeyD` |
-| 발사   | `Space`              |
 | 재시작 | `KeyR`               |
 
-추적하는 키는 기본 브라우저 동작을 막는다. 창이 포커스를 잃으면 모든 입력 플래그를 초기화한다.
+발사는 키 입력 없이 자동으로 수행된다. 추적하는 이동·재시작 키는 기본 브라우저 동작을 막고, 창이 포커스를 잃으면 모든 입력 플래그를 초기화한다.
 
 ## 밸런스 계약
 
