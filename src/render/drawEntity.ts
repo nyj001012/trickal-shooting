@@ -18,7 +18,8 @@ interface RenderDescriptor {
 const RENDER_TABLE: Readonly<Record<EntityKind, RenderDescriptor>> = {
   player: { shape: 'rect', colorToken: 'player' },
   enemy: { shape: 'circle', colorToken: 'enemy' },
-  projectile: { shape: 'rect', colorToken: 'projectile' },
+  regularProjectile: { shape: 'rect', colorToken: 'regularProjectile' },
+  skillProjectile: { shape: 'rect', colorToken: 'skillProjectile' },
 };
 
 /**

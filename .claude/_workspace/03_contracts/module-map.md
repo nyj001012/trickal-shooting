@@ -1,7 +1,7 @@
 # Module Map — 타입 ↔ 물리적 모듈 배치
 
 - **작성:** tech-leader (Phase 2)
-- **근거:** design.md v3.1 §5.5 (슬림화된 5컬럼 스키마)
+- **근거:** design.md v3.5 §5.5 (슬림화된 5컬럼 스키마)
 - **목적:** TypeScript가 표현하지 못하는 단 하나의 정보 — **"어느 타입이 어느 파일에 어떤 이름으로 구현되는가"** — 를 고정한다. `frontend-qa`는 `src/game/**` / `src/hooks/**` / `src/ui/**`를 열람할 수 없으므로, import 경로를 알 방법은 이 표뿐이다.
 - **표기 규칙**
   - `import 경로`는 `tsconfig.json`의 `@/*` alias 기준(§2.2.2).
@@ -29,7 +29,7 @@
 | `@/game/hudStore` | `hudStore` | `HudStore` | `impure(모듈 싱글턴 상태)` | `node` |
 | `@/game/balance` | `BALANCE` | `BalanceConfig`(값, `as const satisfies`) | `pure`(상수) | `node` |
 
-**QA 참고:** 위 표의 모든 항목은 DOM 없이 `environment: node`에서 직접 `import`해 호출할 수 있어야 한다(§6.0 규칙 4 — 이것이 이번 설계의 존재 이유). 픽스처(예: `Enemy`/`Projectile` 리터럴, 고정 시드 `Rng`)는 `tests/helpers/**`에 타입 붙은 빌더로 작성한다.
+**QA 참고:** 위 표의 모든 항목은 DOM 없이 `environment: node`에서 직접 `import`해 호출할 수 있어야 한다(§6.0 규칙 4 — 이것이 이번 설계의 존재 이유). 픽스처(예: `Enemy`/`RegularProjectile`/`SkillProjectile` 리터럴, 고정 시드 `Rng`)는 `tests/helpers/**`에 타입 붙은 빌더로 작성한다.
 
 ---
 

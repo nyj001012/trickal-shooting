@@ -1,6 +1,5 @@
 /**
- * Applies collision results: invuln timer decays first, then projectile hits (damage,
- * death, score/mana), then player contacts (HP loss gated by invuln — INV-DMG-1).
+ * Applies regular hits, skill hits, and player contacts as independent combat paths.
  * @module @/game/systems/combat
  */
 import type { ApplyCombat } from '@/contracts';
@@ -10,9 +9,11 @@ import { BALANCE } from '../balance';
 export const applyCombat: ApplyCombat = (world, collisions, dt): void => {
   world.player.invulnRemainSec = Math.max(0, world.player.invulnRemainSec - dt);
 
-  for (const hit of collisions.projectileHits) {
+  for (const hit of collisions.regularProjectileHits) {
     const enemy = world.enemies.find((candidate) => candidate.id === hit.enemy.id);
-    const projectile = world.projectiles.find((candidate) => candidate.id === hit.projectile.id);
+    const projectile = world.regularProjectiles.find(
+      (candidate) => candidate.id === hit.projectile.id,
+    );
     if (!enemy || !projectile || !enemy.alive || !projectile.alive) continue;
 
     enemy.hp -= projectile.damage;
@@ -20,7 +21,25 @@ export const applyCombat: ApplyCombat = (world, collisions, dt): void => {
     if (enemy.hp <= 0) {
       enemy.alive = false;
       world.session.score += enemy.scoreValue;
-      world.session.mana += enemy.manaGain;
+      world.session.mana = Math.min(
+        BALANCE.progression.manaMax,
+        Math.max(0, world.session.mana + enemy.manaGain),
+      );
+    }
+  }
+
+  for (const hit of collisions.skillProjectileHits) {
+    const enemy = world.enemies.find((candidate) => candidate.id === hit.enemy.id);
+    const projectile = world.skillProjectiles.find(
+      (candidate) => candidate.id === hit.projectile.id,
+    );
+    if (!enemy || !projectile || !enemy.alive || !projectile.alive) continue;
+
+    enemy.hp -= projectile.damage;
+    projectile.alive = false;
+    if (enemy.hp <= 0) {
+      enemy.alive = false;
+      world.session.score += enemy.scoreValue;
     }
   }
 

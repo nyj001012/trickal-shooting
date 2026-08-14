@@ -28,13 +28,21 @@ export interface PlayerBalance {
   readonly speed: number;
   /** count; starting and maximum HP. */
   readonly maxHp: number;
-  /** sec; automatic-fire interval between two shots (D-2). */
-  readonly fireCooldownSec: number;
+  /** sec; automatic-fire interval between regular shots (D-2). */
+  readonly regularFireCooldownSec: number;
+  /** sec; interval between skill shots while skill fire is active (D-2). */
+  readonly skillFireCooldownSec: number;
+  /** percent; minimum mana required to enter skill-fire mode. */
+  readonly skillStartMana: number;
+  /** percent/sec; passive mana recovery while skill fire is inactive. */
+  readonly manaRegenPerSec: number;
+  /** percent/sec; mana consumption while skill fire is active. */
+  readonly skillManaDrainPerSec: number;
   /** sec; invulnerability window granted after a contact hit (INV-DMG-1). */
   readonly invulnSec: number;
 }
 
-export interface ProjectileBalance {
+export interface RegularProjectileBalance {
   /** px; AABB width. */
   readonly width: number;
   /** px; AABB height. */
@@ -44,6 +52,19 @@ export interface ProjectileBalance {
   /** count; HP damage dealt to an enemy on hit. */
   readonly damage: number;
   /** sec; auto-expiry safety net if the projectile never leaves the bounds. */
+  readonly lifetimeSec: number;
+}
+
+export interface SkillProjectileBalance {
+  /** px; AABB width. */
+  readonly width: number;
+  /** px; AABB height. */
+  readonly height: number;
+  /** px/sec; magnitude of the homing velocity vector (D-2). */
+  readonly speed: number;
+  /** count; HP damage dealt to an enemy on hit. */
+  readonly damage: number;
+  /** sec; auto-expiry safety net. */
   readonly lifetimeSec: number;
 }
 
@@ -76,7 +97,7 @@ export interface SpawnBalance {
 }
 
 export interface ProgressionBalance {
-  /** percent; mana value that triggers a reset to 0 (D-3; always 100 in this design). */
+  /** percent; saturation ceiling for every mana increase (D-3; always 100 here). */
   readonly manaMax: number;
   /** count; score distance between consecutive level-ups (D-4). */
   readonly levelUpScoreStep: number;
@@ -90,8 +111,10 @@ export interface ProgressionBalance {
 export interface LimitsBalance {
   /** count; hard cap enforced by `spawnTick` (§6.10 performance budget). */
   readonly maxEnemies: number;
-  /** count; hard cap enforced by `fireWeapon`. */
-  readonly maxProjectiles: number;
+  /** count; hard cap for `world.regularProjectiles`, enforced by `fireWeapon`. */
+  readonly maxRegularProjectiles: number;
+  /** count; hard cap for `world.skillProjectiles`, enforced by `fireWeapon`. */
+  readonly maxSkillProjectiles: number;
 }
 
 export interface LoopBalance {
@@ -109,7 +132,8 @@ export interface LoopBalance {
 export interface BalanceConfig {
   readonly canvas: CanvasBalance;
   readonly player: PlayerBalance;
-  readonly projectile: ProjectileBalance;
+  readonly regularProjectile: RegularProjectileBalance;
+  readonly skillProjectile: SkillProjectileBalance;
   readonly enemy: EnemyBalance;
   readonly spawn: SpawnBalance;
   readonly progression: ProgressionBalance;

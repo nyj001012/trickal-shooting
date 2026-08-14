@@ -109,8 +109,53 @@ test.describe('결정적 게임플레이', () => {
     await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(100));
 
     await expect(page.getByTestId('hud-score')).toHaveText('SCORE: 10');
-    await expect(page.getByTestId('hud-mana')).toHaveText('MANA: 5%');
+    await expect(page.getByTestId('hud-mana')).toHaveText('MANA: 13%');
     await expect(page.getByTestId('hud-hp')).toHaveText('♥ 3 / 3');
+  });
+
+  test('Space를 누르면 MANA를 소모해 스킬 발사하고 놓으면 일반 상태 회복을 재개한다', async ({
+    page,
+  }) => {
+    const beforeSkill = await page.evaluate(() => {
+      window.__TRICKAL_TEST__?.seed(5);
+      for (let tick = 0; tick < 600; tick += 1) {
+        window.__TRICKAL_TEST__?.stepFrames(1);
+        const snapshot = window.__TRICKAL_TEST__?.getSnapshot();
+        if (snapshot && snapshot.mana >= 30) return snapshot;
+      }
+      throw new Error('600틱 안에 스킬 검증용 MANA 30을 확보하지 못했습니다.');
+    });
+
+    await page.keyboard.down('Space');
+    const duringSkill = await page.evaluate(() => {
+      window.__TRICKAL_TEST__?.stepFrames(20);
+      return window.__TRICKAL_TEST__?.getSnapshot();
+    });
+    await page.keyboard.up('Space');
+
+    expect(duringSkill?.mana).toBeLessThan(beforeSkill.mana);
+    expect(duringSkill?.mana).toBeGreaterThan(0);
+
+    const afterRelease = await page.evaluate(() => {
+      window.__TRICKAL_TEST__?.stepFrames(60);
+      return window.__TRICKAL_TEST__?.getSnapshot();
+    });
+    expect(afterRelease?.mana).toBeGreaterThan(duringSkill?.mana ?? 0);
+    await expect(page.getByTestId('hud-mana')).toHaveText(`MANA: ${afterRelease?.mana}%`);
+  });
+
+  test('MANA가 100일 때 추가 회복과 일반탄 처치 보상이 들어와도 100을 유지한다', async ({
+    page,
+  }) => {
+    await page.evaluate(() => {
+      window.__TRICKAL_TEST__?.seed(6);
+      window.__TRICKAL_TEST__?.stepFrames(1_200);
+    });
+    await expect(page.getByTestId('hud-mana')).toHaveText('MANA: 100%');
+
+    await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(120));
+
+    await expect(page.getByTestId('hud-mana')).toHaveText('MANA: 100%');
   });
 
   test('적들이 왼쪽 경계를 넘어 사라져도 HP가 감소하지 않는다', async ({ page }) => {

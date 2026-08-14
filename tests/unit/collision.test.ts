@@ -1,7 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { aabbOverlap, detectCollisions } from '@/game/systems/collision';
-import { makeEnemy, makePlayer, makeProjectile, makeWorld } from '../helpers/fixtures';
+import {
+  makeEnemy,
+  makePlayer,
+  makeRegularProjectile,
+  makeSkillProjectile,
+  makeWorld,
+} from '../helpers/fixtures';
 
 describe('aabbOverlap — boundary conditions', () => {
   it('is true for full containment (one box entirely inside another)', () => {
@@ -41,17 +47,24 @@ describe('aabbOverlap — boundary conditions', () => {
   });
 });
 
-describe('detectCollisions', () => {
-  it('reports an alive projectile x alive enemy overlap as a ProjectileHit', () => {
+describe('detectCollisions — separated projectile hit lists', () => {
+  it('reports regular and skill overlaps independently', () => {
     const enemy = makeEnemy({ id: 1, x: 100, y: 100, width: 28, height: 28 });
-    const projectile = makeProjectile({ id: 2, x: 100, y: 100, width: 8, height: 4 });
-    const world = makeWorld({ enemies: [enemy], projectiles: [projectile] });
+    const regular = makeRegularProjectile({ id: 2, x: 100, y: 100 });
+    const skill = makeSkillProjectile({ id: 3, x: 100, y: 100 });
+    const world = makeWorld({
+      enemies: [enemy],
+      regularProjectiles: [regular],
+      skillProjectiles: [skill],
+    });
 
     const result = detectCollisions(world);
 
-    expect(result.projectileHits).toHaveLength(1);
-    expect(result.projectileHits[0].enemy.id).toBe(1);
-    expect(result.projectileHits[0].projectile.id).toBe(2);
+    expect(result.regularProjectileHits).toHaveLength(1);
+    expect(result.regularProjectileHits[0].projectile.id).toBe(2);
+    expect(result.skillProjectileHits).toHaveLength(1);
+    expect(result.skillProjectileHits[0].projectile.id).toBe(3);
+    expect(result.skillProjectileHits[0].enemy.id).toBe(1);
     expect(result.playerContacts).toHaveLength(0);
   });
 
@@ -64,25 +77,38 @@ describe('detectCollisions', () => {
 
     expect(result.playerContacts).toHaveLength(1);
     expect(result.playerContacts[0].enemy.id).toBe(5);
-    expect(result.projectileHits).toHaveLength(0);
+    expect(result.regularProjectileHits).toHaveLength(0);
+    expect(result.skillProjectileHits).toHaveLength(0);
   });
 
   it('ignores entities already marked dead (alive: false)', () => {
     const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
     const deadEnemy = makeEnemy({ id: 9, x: 200, y: 200, alive: false });
-    const deadProjectile = makeProjectile({ id: 10, x: 200, y: 200, alive: false });
-    const world = makeWorld({ player, enemies: [deadEnemy], projectiles: [deadProjectile] });
+    const deadRegular = makeRegularProjectile({ id: 10, x: 200, y: 200, alive: false });
+    const deadSkill = makeSkillProjectile({ id: 11, x: 200, y: 200, alive: false });
+    const world = makeWorld({
+      player,
+      enemies: [deadEnemy],
+      regularProjectiles: [deadRegular],
+      skillProjectiles: [deadSkill],
+    });
 
     const result = detectCollisions(world);
 
     expect(result.playerContacts).toHaveLength(0);
-    expect(result.projectileHits).toHaveLength(0);
+    expect(result.regularProjectileHits).toHaveLength(0);
+    expect(result.skillProjectileHits).toHaveLength(0);
   });
 
   it('is a pure read: it never mutates the world it scans (§6.4 — "판정 함수는 부수효과가 없어야 한다")', () => {
     const enemy = makeEnemy({ id: 1, x: 100, y: 100 });
-    const projectile = makeProjectile({ id: 2, x: 100, y: 100 });
-    const world = makeWorld({ enemies: [enemy], projectiles: [projectile] });
+    const regular = makeRegularProjectile({ id: 2, x: 100, y: 100 });
+    const skill = makeSkillProjectile({ id: 3, x: 100, y: 100 });
+    const world = makeWorld({
+      enemies: [enemy],
+      regularProjectiles: [regular],
+      skillProjectiles: [skill],
+    });
     const before = structuredClone(world);
 
     detectCollisions(world);

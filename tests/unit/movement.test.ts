@@ -6,7 +6,8 @@ import {
   makeEnemy,
   makeInputState,
   makePlayer,
-  makeProjectile,
+  makeRegularProjectile,
+  makeSkillProjectile,
   makeWorld,
 } from '../helpers/fixtures';
 import type { InputState } from '@/contracts';
@@ -143,27 +144,73 @@ describe('applyMovement — enemies move left and disappear without damaging the
   });
 });
 
-describe('applyMovement — projectiles always travel +x and expire safely (D-2)', () => {
-  it('moves alive projectiles right by speed * dt and decrements lifetime', () => {
-    const projectile = makeProjectile({ x: 100, y: 300, lifetimeRemainSec: 2 });
-    const world = makeWorld({ projectiles: [projectile] });
+describe('applyMovement — regular projectiles (D-2)', () => {
+  it('moves alive regular projectiles right and decrements lifetime', () => {
+    const projectile = makeRegularProjectile({ x: 100, y: 300, lifetimeRemainSec: 2 });
+    const world = makeWorld({ regularProjectiles: [projectile] });
     applyMovement(world, makeInputState(), DT);
-    expect(world.projectiles[0].x).toBeCloseTo(100 + BALANCE.projectile.speed * DT, 5);
-    expect(world.projectiles[0].lifetimeRemainSec).toBeCloseTo(2 - DT, 5);
+    expect(world.regularProjectiles[0].x).toBeCloseTo(
+      100 + BALANCE.regularProjectile.speed * DT,
+      5,
+    );
+    expect(world.regularProjectiles[0].lifetimeRemainSec).toBeCloseTo(2 - DT, 5);
   });
 
-  it('marks a projectile dead once its lifetime expires', () => {
-    const projectile = makeProjectile({ x: 100, y: 300, lifetimeRemainSec: DT / 2 });
-    const world = makeWorld({ projectiles: [projectile] });
+  it('marks a regular projectile dead on lifetime expiry or right-edge exit', () => {
+    const projectile = makeRegularProjectile({
+      x: 801,
+      y: 300,
+      lifetimeRemainSec: DT / 2,
+    });
+    const world = makeWorld({ regularProjectiles: [projectile] });
     applyMovement(world, makeInputState(), DT);
-    expect(world.projectiles[0].alive).toBe(false);
+    expect(world.regularProjectiles[0].alive).toBe(false);
+  });
+});
+
+describe('applyMovement — skill-projectile homing and expiry (D-2)', () => {
+  it('homes toward the nearest alive enemy at the configured speed', () => {
+    const projectile = makeSkillProjectile({ x: 100, y: 100, vx: 0, vy: 0 });
+    const farther = makeEnemy({ id: 1, x: 400, y: 400 });
+    const nearer = makeEnemy({ id: 2, x: 200, y: 120 });
+    const world = makeWorld({ enemies: [farther, nearer], skillProjectiles: [projectile] });
+    applyMovement(world, makeInputState(), DT);
+
+    const moved = world.skillProjectiles[0];
+    expect(Math.hypot(moved.vx, moved.vy)).toBeCloseTo(BALANCE.skillProjectile.speed, 5);
+    expect(moved.vx).toBeGreaterThan(0);
+    expect(moved.vy).toBeGreaterThan(0);
+    expect(moved.x).toBeCloseTo(100 + moved.vx * DT, 5);
+    expect(moved.y).toBeCloseTo(100 + moved.vy * DT, 5);
   });
 
-  it('marks a projectile dead once it crosses the right screen edge', () => {
-    const bounds = { width: 800, height: 600 };
-    const projectile = makeProjectile({ x: bounds.width + 1, y: 300, lifetimeRemainSec: 10 });
-    const world = makeWorld({ bounds, projectiles: [projectile] });
+  it('uses the first enemy in array order when nearest distances are tied', () => {
+    const projectile = makeSkillProjectile({ x: 100, y: 100, vx: 0, vy: 0 });
+    const first = makeEnemy({ id: 1, x: 250, y: 68 });
+    const second = makeEnemy({ id: 2, x: 250, y: 124 });
+    const world = makeWorld({ enemies: [first, second], skillProjectiles: [projectile] });
     applyMovement(world, makeInputState(), DT);
-    expect(world.projectiles[0].alive).toBe(false);
+    expect(world.skillProjectiles[0].vy).toBeLessThan(0);
+  });
+
+  it('travels straight right when no alive target exists', () => {
+    const projectile = makeSkillProjectile({ x: 100, y: 100, vx: 0, vy: 99 });
+    const world = makeWorld({
+      enemies: [makeEnemy({ alive: false })],
+      skillProjectiles: [projectile],
+    });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.skillProjectiles[0].vx).toBe(BALANCE.skillProjectile.speed);
+    expect(world.skillProjectiles[0].vy).toBe(0);
+    expect(world.skillProjectiles[0].x).toBeCloseTo(100 + BALANCE.skillProjectile.speed * DT, 5);
+  });
+
+  it('expires a skill projectile by lifetime or after fully crossing any playfield edge', () => {
+    const expired = makeSkillProjectile({ lifetimeRemainSec: DT / 2 });
+    const above = makeSkillProjectile({ id: 4, y: -100, lifetimeRemainSec: 10 });
+    const world = makeWorld({ skillProjectiles: [expired, above] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.skillProjectiles[0].alive).toBe(false);
+    expect(world.skillProjectiles[1].alive).toBe(false);
   });
 });

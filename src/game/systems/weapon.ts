@@ -1,38 +1,92 @@
 /**
- * Automatic player fire: cooldown always ticks down first; a shot is spawned whenever
- * it becomes ready, without reading user input (D-2, INV-FIRE-1).
+ * Mutually-exclusive regular auto-fire and Space/MANA skill fire (D-2/D-3,
+ * INV-FIRE-1, INV-MANA-1).
  * @module @/game/systems/weapon
  */
-import type { FireWeapon } from '@/contracts';
+import type { FireWeapon, GameWorld } from '@/contracts';
 
 import { BALANCE } from '../balance';
 
-export const fireWeapon: FireWeapon = (world, dt): void => {
-  const nextCooldown = world.player.fireCooldownRemainSec - dt;
-  world.player.fireCooldownRemainSec = nextCooldown <= Number.EPSILON ? 0 : nextCooldown;
+function tickCooldown(value: number, dt: number): number {
+  const next = value - dt;
+  return next <= Number.EPSILON ? 0 : next;
+}
 
-  if (world.player.fireCooldownRemainSec > 0) {
+function clampMana(value: number): number {
+  return Math.min(BALANCE.progression.manaMax, Math.max(0, value));
+}
+
+function fireRegularProjectile(world: GameWorld): void {
+  const aliveCount = world.regularProjectiles.filter((projectile) => projectile.alive).length;
+  if (aliveCount < BALANCE.limits.maxRegularProjectiles) {
+    world.regularProjectiles.push({
+      id: world.nextEntityId,
+      kind: 'regularProjectile',
+      alive: true,
+      x: world.player.x + world.player.width,
+      y: world.player.y + world.player.height / 2 - BALANCE.regularProjectile.height / 2,
+      width: BALANCE.regularProjectile.width,
+      height: BALANCE.regularProjectile.height,
+      damage: BALANCE.regularProjectile.damage,
+      lifetimeRemainSec: BALANCE.regularProjectile.lifetimeSec,
+    });
+    world.nextEntityId += 1;
+  }
+  world.player.regularFireCooldownRemainSec = BALANCE.player.regularFireCooldownSec;
+}
+
+function fireSkillProjectile(world: GameWorld): void {
+  const aliveCount = world.skillProjectiles.filter((projectile) => projectile.alive).length;
+  if (aliveCount < BALANCE.limits.maxSkillProjectiles) {
+    world.skillProjectiles.push({
+      id: world.nextEntityId,
+      kind: 'skillProjectile',
+      alive: true,
+      x: world.player.x + world.player.width,
+      y: world.player.y + world.player.height / 2 - BALANCE.skillProjectile.height / 2,
+      width: BALANCE.skillProjectile.width,
+      height: BALANCE.skillProjectile.height,
+      damage: BALANCE.skillProjectile.damage,
+      lifetimeRemainSec: BALANCE.skillProjectile.lifetimeSec,
+      vx: BALANCE.skillProjectile.speed,
+      vy: 0,
+    });
+    world.nextEntityId += 1;
+  }
+  world.player.skillFireCooldownRemainSec = BALANCE.player.skillFireCooldownSec;
+}
+
+export const fireWeapon: FireWeapon = (world, input, dt): void => {
+  world.player.regularFireCooldownRemainSec = tickCooldown(
+    world.player.regularFireCooldownRemainSec,
+    dt,
+  );
+  world.player.skillFireCooldownRemainSec = tickCooldown(
+    world.player.skillFireCooldownRemainSec,
+    dt,
+  );
+
+  if (world.player.isSkillFiring) {
+    if (!input.skill || world.session.mana <= 0) {
+      world.player.isSkillFiring = false;
+    }
+  } else if (input.skill && world.session.mana >= BALANCE.player.skillStartMana) {
+    world.player.isSkillFiring = true;
+  }
+
+  if (world.player.isSkillFiring) {
+    world.session.mana = clampMana(world.session.mana - BALANCE.player.skillManaDrainPerSec * dt);
+    if (world.player.skillFireCooldownRemainSec <= 0) {
+      fireSkillProjectile(world);
+    }
+    if (world.session.mana <= 0) {
+      world.player.isSkillFiring = false;
+    }
     return;
   }
-  if (
-    world.projectiles.filter((projectile) => projectile.alive).length >=
-    BALANCE.limits.maxProjectiles
-  ) {
-    world.player.fireCooldownRemainSec = BALANCE.player.fireCooldownSec;
-    return;
-  }
 
-  world.projectiles.push({
-    id: world.nextEntityId,
-    kind: 'projectile',
-    alive: true,
-    x: world.player.x,
-    y: world.player.y,
-    width: BALANCE.projectile.width,
-    height: BALANCE.projectile.height,
-    damage: BALANCE.projectile.damage,
-    lifetimeRemainSec: BALANCE.projectile.lifetimeSec,
-  });
-  world.nextEntityId += 1;
-  world.player.fireCooldownRemainSec = BALANCE.player.fireCooldownSec;
+  world.session.mana = clampMana(world.session.mana + BALANCE.player.manaRegenPerSec * dt);
+  if (world.player.regularFireCooldownRemainSec <= 0) {
+    fireRegularProjectile(world);
+  }
 };

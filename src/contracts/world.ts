@@ -3,7 +3,7 @@
  * Declarations only — see the header rules in `entities.ts`.
  */
 
-import type { Enemy, Player, Projectile } from './entities';
+import type { Enemy, Player, RegularProjectile, SkillProjectile } from './entities';
 
 /** Fixed logical playfield size (design.md §1.1 — 800x600, never resized). */
 export interface Bounds {
@@ -25,7 +25,7 @@ export interface GameSession {
   hp: number;
   /** count; HP ceiling, fixed for the lifetime of one GameWorld. */
   readonly maxHp: number;
-  /** percent, 0-100. Resets to 0 on reaching >= 100 (D-3). Never negative, never > 100. */
+  /** percent, saturated to [0, 100]. Additional gain at 100 leaves it at 100 (INV-MANA-1). */
   mana: number;
   /** count; monotonically non-decreasing within one GameWorld lifetime. */
   score: number;
@@ -55,6 +55,8 @@ export interface InputState {
   down: boolean;
   left: boolean;
   right: boolean;
+  /** true while Space is held; starts/maintains skill fire according to the mana rules. */
+  skill: boolean;
   /** true on the tick the restart key is pressed; only acted on while status === 'gameover'. */
   restart: boolean;
 }
@@ -78,7 +80,8 @@ export interface GameWorld {
   readonly bounds: Bounds;
   player: Player;
   enemies: Enemy[];
-  projectiles: Projectile[];
+  regularProjectiles: RegularProjectile[];
+  skillProjectiles: SkillProjectile[];
   session: GameSession;
   spawner: SpawnerState;
   /** Next value to assign as an entity's `id`, then incremented. Starts at 0. */

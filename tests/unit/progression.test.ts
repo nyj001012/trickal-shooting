@@ -4,8 +4,8 @@ import { applyProgression } from '@/game/systems/progression';
 import { BALANCE } from '@/game/balance';
 import { makeWorld } from '../helpers/fixtures';
 
-describe('applyProgression — MANA reset at the configured max (D-3)', () => {
-  it('resets mana to 0 once it reaches the configured max', () => {
+describe('applyProgression — MANA saturation (INV-MANA-1, D-3)', () => {
+  it('keeps mana at the configured max instead of resetting it', () => {
     const world = makeWorld({
       session: {
         hp: 3,
@@ -17,10 +17,10 @@ describe('applyProgression — MANA reset at the configured max (D-3)', () => {
       },
     });
     applyProgression(world);
-    expect(world.session.mana).toBe(0);
+    expect(world.session.mana).toBe(BALANCE.progression.manaMax);
   });
 
-  it('resets to 0 (not to the overshoot remainder) when mana overshoots the max', () => {
+  it('clamps an overshoot to the configured max', () => {
     const world = makeWorld({
       session: {
         hp: 3,
@@ -30,6 +30,14 @@ describe('applyProgression — MANA reset at the configured max (D-3)', () => {
         level: 1,
         status: 'playing',
       },
+    });
+    applyProgression(world);
+    expect(world.session.mana).toBe(BALANCE.progression.manaMax);
+  });
+
+  it('clamps a negative mana value to 0', () => {
+    const world = makeWorld({
+      session: { hp: 3, maxHp: 3, mana: -10, score: 0, level: 1, status: 'playing' },
     });
     applyProgression(world);
     expect(world.session.mana).toBe(0);

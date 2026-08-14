@@ -39,8 +39,12 @@ export interface EntityBase extends Box {
 /** The player-controlled entity ("에르핀"). Exactly one instance exists per GameWorld. */
 export interface Player extends EntityBase {
   readonly kind: 'player';
-  /** sec; remaining cooldown before another shot may be fired. 0 means ready to fire (D-2). */
-  fireCooldownRemainSec: number;
+  /** sec; remaining cooldown before another regular shot. 0 means ready (D-2). */
+  regularFireCooldownRemainSec: number;
+  /** sec; remaining cooldown before another skill shot. 0 means ready (D-2). */
+  skillFireCooldownRemainSec: number;
+  /** Whether Space-triggered skill fire is active for the current simulation tick. */
+  isSkillFiring: boolean;
   /**
    * sec; remaining invulnerability window after the last HP-reducing contact hit.
    * While > 0, contact damage must not reduce HP again (INV-DMG-1).
@@ -70,9 +74,9 @@ export interface Enemy extends EntityBase {
   readonly contactDamage: number;
 }
 
-/** A projectile fired by the player. Always travels in +x (D-2); never homes or turns. */
-export interface Projectile extends EntityBase {
-  readonly kind: 'projectile';
+/** A regular projectile. It always travels in +x and can grant mana on an enemy kill. */
+export interface RegularProjectile extends EntityBase {
+  readonly kind: 'regularProjectile';
   /**
    * count; HP damage dealt to the enemy it hits. Captured from BalanceConfig at spawn time
    * so collision/combat fixtures never need to import the real balance module.
@@ -82,11 +86,24 @@ export interface Projectile extends EntityBase {
   lifetimeRemainSec: number;
 }
 
+/** A skill projectile. It homes toward the nearest alive enemy and never grants mana. */
+export interface SkillProjectile extends EntityBase {
+  readonly kind: 'skillProjectile';
+  /** count; HP damage dealt to the enemy it hits. */
+  readonly damage: number;
+  /** sec; remaining lifetime before automatic expiry. */
+  lifetimeRemainSec: number;
+  /** px/sec; current horizontal velocity, recalculated while a target exists. */
+  vx: number;
+  /** px/sec; current vertical velocity, recalculated while a target exists. */
+  vy: number;
+}
+
 /**
  * Discriminated union over `kind`. Use this (not Box) whenever code must branch on entity
  * kind — the `switch` must be exhaustive (§6.3 / §6.5.4, `switch-exhaustiveness-check`).
  */
-export type Entity = Player | Enemy | Projectile;
+export type Entity = Player | Enemy | RegularProjectile | SkillProjectile;
 
 /** Derived, never hand-duplicated (§6.5.4). */
 export type EntityKind = Entity['kind'];

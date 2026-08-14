@@ -8,15 +8,18 @@ describe('createWorld — initial GameWorld shape (matches BalanceConfig)', () =
     const world = createWorld();
     expect(world.player.x).toBe(BALANCE.player.spawnX);
     expect(world.player.y).toBe(BALANCE.player.spawnY);
-    expect(world.player.fireCooldownRemainSec).toBe(0);
+    expect(world.player.regularFireCooldownRemainSec).toBe(0);
+    expect(world.player.skillFireCooldownRemainSec).toBe(0);
+    expect(world.player.isSkillFiring).toBe(false);
     expect(world.player.invulnRemainSec).toBe(0);
     expect(world.player.alive).toBe(true);
   });
 
-  it('starts with no enemies and no projectiles', () => {
+  it('starts with no enemies and separate empty projectile arrays', () => {
     const world = createWorld();
     expect(world.enemies).toEqual([]);
-    expect(world.projectiles).toEqual([]);
+    expect(world.regularProjectiles).toEqual([]);
+    expect(world.skillProjectiles).toEqual([]);
   });
 
   it('starts the session at full HP, zero mana/score, level 1, playing status', () => {
@@ -47,6 +50,8 @@ describe('createWorld — initial GameWorld shape (matches BalanceConfig)', () =
     expect(worldA).not.toBe(worldB);
     expect(worldA.player).not.toBe(worldB.player);
     expect(worldA.enemies).not.toBe(worldB.enemies);
+    expect(worldA.regularProjectiles).not.toBe(worldB.regularProjectiles);
+    expect(worldA.skillProjectiles).not.toBe(worldB.skillProjectiles);
     expect(worldA.session).not.toBe(worldB.session);
     expect(worldA).toEqual(worldB);
   });

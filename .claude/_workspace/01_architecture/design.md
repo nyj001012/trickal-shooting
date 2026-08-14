@@ -1,6 +1,6 @@
 # 트릭컬 슈팅게임 — 시스템 아키텍처 설계서 (Greyboxing Phase)
 
-- **문서 버전:** 3.4 (플레이어 수동 발사 입력 제거. 플레이 중 준비 상태에서 0.3초 주기로 투사체 자동 발사)
+- **문서 버전:** 3.5 (일반탄·스킬탄 타입/배열/처리 경로 분리, Space 기반 MANA 스킬과 0~100 포화 규칙 추가)
 - **작성:** system-architect (Phase 1)
 - **상태:** `[APPROVED]` — 기술 스택 / 표준 명령어 / 소유권 경로 모두 확정됨
 - **저장소:** `D:\dev\trickal-shooting` (신규, `README.md`만 존재)
@@ -22,7 +22,7 @@
 | 렌더링 | HTML5 Canvas 2D, **논리 해상도 800 x 600 고정** |
 | 화면 레이아웃 | 뷰포트 전체를 사용하는 반응형 셸. 게임 보드는 4:3 비율을 유지하면서 뷰포트 안의 최대 크기로 중앙 정렬 |
 | HUD | HP / MANA / SCORE / LEVEL 4개 항목 (뼈대 코드의 표기 유지) |
-| 게임 요소 | 플레이어(에르핀), 적(슬라임), 투사체, 스폰 웨이브, 충돌 판정, 점수/레벨 |
+| 게임 요소 | 플레이어(에르핀), 적(슬라임), 일반탄·유도 스킬탄, MANA 스킬 상태, 스폰 웨이브, 충돌 판정, 점수/레벨 |
 | 시각 표현 | **그레이박스**: 사각형/원 + 색상 팔레트만. 이미지·스프라이트·사운드 에셋 **일절 사용 금지** |
 
 ### 1.2 이번 단계 **범위 밖** (설계하지 않음)
@@ -104,7 +104,7 @@
 | 옵션 | 값 | 판단 근거 (게임 루프 코드 영향 포함) |
 | --- | --- | --- |
 | `strict` | **`true`** | 전 항목 필수. 완화 금지. `strictNullChecks`가 `canvasRef.current` / `getContext('2d')` 널 미처리(원본 뼈대의 실제 버그 소지)를 잡는다. |
-| `noUncheckedIndexedAccess` | **`false`** | **의도적으로 끈다.** 이 게임은 매 틱 `enemies[i]` / `projectiles[i]`를 순회하는 핫 루프가 코드의 중심인데, 이 옵션은 모든 인덱스 접근 결과를 `T \| undefined`로 만들어 **틱마다 의미 없는 널 가드 또는 `!` 단언을 강요**한다. `!` 남발은 오히려 타입 안전성을 떨어뜨린다. **대체 방어책(강제):** ① 배열 순회는 `for...of` / `.forEach` / `.filter` / `.map`을 기본으로 하고 인덱스 루프는 길이 보장이 자명한 경우로 한정, ② `.find()` 등 **명시적으로 `undefined`를 반환하는 API의 결과는 반드시 널 검사**(이 옵션과 무관하게 strict가 잡음), ③ 이 규칙 위반은 리뷰 반려 사유(§6.4). |
+| `noUncheckedIndexedAccess` | **`false`** | **의도적으로 끈다.** 이 게임은 매 틱 `enemies[i]` / `regularProjectiles[i]` / `skillProjectiles[i]`를 순회하는 핫 루프가 코드의 중심인데, 이 옵션은 모든 인덱스 접근 결과를 `T \| undefined`로 만들어 **틱마다 의미 없는 널 가드 또는 `!` 단언을 강요**한다. `!` 남발은 오히려 타입 안전성을 떨어뜨린다. **대체 방어책(강제):** ① 배열 순회는 `for...of` / `.forEach` / `.filter` / `.map`을 기본으로 하고 인덱스 루프는 길이 보장이 자명한 경우로 한정, ② `.find()` 등 **명시적으로 `undefined`를 반환하는 API의 결과는 반드시 널 검사**(이 옵션과 무관하게 strict가 잡음), ③ 이 규칙 위반은 리뷰 반려 사유(§6.4). |
 | `noUnusedLocals` / `noUnusedParameters` | **`true`** | 죽은 코드·오타 조기 발견. 그레이박싱에서 실험하다 남은 잔재를 자동 제거하게 만든다. 의도적 미사용 인자는 `_` 접두사로 표기(`argsIgnorePattern: "^_"`). |
 | `verbatimModuleSyntax` | **`true`** | 타입 전용 import를 `import type`으로 **강제**한다. esbuild는 파일 단위 트랜스파일이라 타입/값 구분을 못해 런타임 import 잔존이나 순환 참조 사고가 생기는데, 이 옵션이 원천 차단한다. 계약 타입을 앱 전역에서 import하는 이 구조에서 **필수**. |
 | `moduleResolution` | **`bundler`** | Vite(번들러) 해석 규칙과 동일. 확장자 없는 상대 import와 `exports` 필드를 정확히 해석한다. `node16`은 확장자 명시를 강제해 번들러 환경에 부적합. |
@@ -140,7 +140,7 @@ D:\dev\trickal-shooting\
 ├─ src\
 │  ├─ contracts\                      ★★ [TECH-LEAD 전용] 타입 선언만, 런타임 코드 0줄 (§5)
 │  │  ├─ index.ts                     계약 배럴(barrel) — 앱은 `@/contracts`로만 import
-│  │  ├─ entities.ts                  Entity 판별 유니온, Player/Enemy/Projectile, Box
+│  │  ├─ entities.ts                  Entity 판별 유니온, Player/Enemy/RegularProjectile/SkillProjectile, Box
 │  │  ├─ world.ts                     GameWorld, GameSession, SpawnerState, GameStatus
 │  │  ├─ systems.ts                   각 시스템 함수 시그니처 타입 + 모듈 배치 주석
 │  │  ├─ ui.ts                        컴포넌트 Props, HudSnapshot, HudStore, TestBridge
@@ -292,14 +292,14 @@ test:coverage, lint, lint:fix, format, format:check, e2e, e2e:report
 
 | 파일 | 성격 | 내용 |
 | --- | --- | --- |
-| `src/contracts/entities.ts` | **타입 소스(SSOT)** | `EntityKind`, `Box`, `EntityBase`, `Player`, `Enemy`, `Projectile`, `Entity` 판별 유니온 |
+| `src/contracts/entities.ts` | **타입 소스(SSOT)** | `EntityKind`, `Box`, `EntityBase`, `Player`, `Enemy`, `RegularProjectile`, `SkillProjectile`, `Entity` 판별 유니온 |
 | `src/contracts/world.ts` | 타입 소스 | `GameStatus`, `GameSession`, `SpawnerState`, `GameWorld`, `InputState`, `Rng` |
 | `src/contracts/systems.ts` | 타입 소스 | 각 시스템 함수 시그니처 타입(`StepWorld`, `AabbOverlap`, `SpawnTick` 등) + **각 타입이 어느 모듈 파일에 구현되는지 JSDoc `@module`로 명시** |
 | `src/contracts/ui.ts` | 타입 소스 | `HudSnapshot`, `HudStore`, 컴포넌트 Props, `TestBridge` |
 | `src/contracts/balance.ts` | 타입 소스 | `BalanceConfig` **타입만**(실제 수치 값은 `src/game/balance.ts`가 FE-DEV 소유로 보유) |
 | `src/contracts/index.ts` | 배럴 | 위 전부 re-export. **앱·테스트는 `@/contracts`에서만 import한다.** |
 | `.claude/_workspace/03_contracts/invariants.md` | 산문 명세 | 타입으로 표현 **불가능한** 것: 불변식, 실행 순서, 경계 조건, 수용 기준. **§6.2.1의 `INV-MOVE-1/2`, `INV-FIRE-1`, `INV-SPAWN-1`, `INV-DMG-1`을 반드시 포함**한다. |
-| `.claude/_workspace/03_contracts/ui-contracts.md` | 산문 명세 | HUD 표시 문자열 포맷, `data-testid` 목록, **키 바인딩 표(§6.2.1-(1), 이동·재시작 의미 입력 5종)**, 게임오버 오버레이 문구·재시작 키, E2E 브릿지 사용 규약 |
+| `.claude/_workspace/03_contracts/ui-contracts.md` | 산문 명세 | HUD 표시 문자열 포맷, `data-testid` 목록, **키 바인딩 표(§6.2.1-(1), 이동·스킬·재시작 의미 입력 6종)**, 게임오버 오버레이 문구·재시작 키, E2E 브릿지 사용 규약 |
 | `.claude/_workspace/03_contracts/module-map.md` | **슬림화된 매핑표** | §5.5 참조 |
 
 ### 5.3 `src/contracts/**` 작성 규칙 (위반 시 반려)
@@ -412,7 +412,7 @@ drawScene(ctx, world);
 
 > §9의 D-1 ~ D-6을 시뮬레이션 계층 규약으로 옮긴 것이다. `tech-leader`는 이 내용을 `invariants.md`(불변식)와 `ui-contracts.md`(키 바인딩)로 고정한다.
 
-#### (1) 키 바인딩 (D-1 / D-6) — `ui-contracts.md`에 고정
+#### (1) 키 바인딩 (D-1 / D-2 / D-6) — `ui-contracts.md`에 고정
 
 | 동작 | 키 | 비고 |
 | --- | --- | --- |
@@ -420,11 +420,12 @@ drawScene(ctx, world);
 | 아래로 이동 | `ArrowDown` / `KeyS` | |
 | **왼쪽으로 이동** | `ArrowLeft` / `KeyA` | **8방향 확정으로 신설** |
 | **오른쪽으로 이동** | `ArrowRight` / `KeyD` | **8방향 확정으로 신설** |
+| 스킬 발사 유지 | `Space` | MANA 20 이상에서 시작, 누르는 동안 유지(D-2/D-3) |
 | 재시작 | `KeyR` | `status === 'gameover'` 일 때만 유효(D-6) |
 
 - 키 식별은 레이아웃 의존적인 `event.key`가 아니라 **`event.code`** 를 사용한다(한/영 전환·비 QWERTY 환경에서도 동작).
-- `InputState`는 **의미 단위 boolean 집합**(`up`/`down`/`left`/`right`/`restart`)으로 정규화해 보관한다. 발사는 사용자 입력이 아니며 **DOM 키 코드는 `hooks/useKeyboardInput.ts`에서만 다루고 `game/**`에는 절대 넘기지 않는다**(§6.0 규칙 1).
-- 방향키의 브라우저 기본 스크롤 동작을 `preventDefault`로 차단한다.
+- `InputState`는 **의미 단위 boolean 집합**(`up`/`down`/`left`/`right`/`skill`/`restart`)으로 정규화해 보관한다. 일반탄은 자동 발사이고 `skill`만 사용자 입력이다. **DOM 키 코드는 `hooks/useKeyboardInput.ts`에서만 다루고 `game/**`에는 절대 넘기지 않는다**(§6.0 규칙 1).
+- `Space`와 방향키의 브라우저 기본 스크롤 동작을 `preventDefault`로 차단한다.
 - 창 포커스 상실(`blur`) 시 `InputState`를 **전부 false로 초기화**한다(키가 눌린 채 고착되는 사고 방지).
 
 #### (2) 대각선 이동 속도 정규화 (D-1) — **필수 불변식**
@@ -457,11 +458,15 @@ player.y = clamp(player.y, 0, bounds.height - player.height)
 
 #### (4) 투사체 발사 (D-2)
 
-- `weapon.ts`는 플레이 중 매 고정 틱마다 쿨다운을 먼저 감소시키고, 감소 결과가 `0`이면 별도 입력 없이 투사체를 **정확히 1개 자동 생성**한다.
-- 새 월드는 쿨다운 `0`으로 시작하므로 첫 번째 플레이 틱에 즉시 발사한다. 발사 후 쿨다운은 `0.3초`로 리셋하며, 쿨다운 잔여 중에는 투사체를 생성하지 않는다.
-- 살아 있는 투사체가 `BalanceConfig.limits.maxProjectiles`에 도달하면 생성을 조용히 생략하고 쿨다운을 리셋한다. 발사 요청의 버퍼링·큐잉은 존재하지 않는다.
-- 발사 시 투사체는 **플레이어의 현재 위치 기준**으로 생성되며 **항상 +x 방향(우측)으로 직진**한다. 플레이어가 어디로 움직이든 발사 방향은 우측 고정이다(이번 단계에서 조준 방향은 도입하지 않는다).
-- **불변식 INV-FIRE-1:** 쿨다운 잔여 중 틱당 생성되는 투사체 수는 0이고, 준비 상태의 한 틱에서는 입력과 무관하게 최대 1개만 생성된다.
+- `GameWorld`는 `regularProjectiles`와 `skillProjectiles`를 별도 배열로 보유하고, 타입도 `RegularProjectile`과 `SkillProjectile`로 분리한다. 이동·충돌 결과·전투·렌더 순회는 두 경로를 합치지 않는다.
+- `Player`는 `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`을 보유한다. 두 쿨다운은 매 고정 틱 감소하므로 모드 전환 시 준비된 탄종은 즉시 발사할 수 있다.
+- 일반 상태에서는 첫 플레이 틱부터 `0.3초`마다 일반탄을 자동 발사하고 MANA를 초당 `5` 회복한다. MANA는 `100`을 넘지 않는다.
+- `input.skill`이 true이고 MANA가 `20` 이상이면 스킬 모드를 시작한다. 시작 후에는 MANA가 20 미만이어도 Space를 누르고 MANA가 남아 있는 동안 유지한다.
+- 스킬 모드에서는 일반탄을 생성하지 않고 `0.15초`마다 스킬탄만 생성하며 MANA를 초당 `30` 소모한다. Space를 놓거나 MANA가 `0`이 되면 모드를 종료하고 일반탄 자동 발사를 재개한다.
+- 각 탄종은 플레이어 오른쪽 가장자리의 세로 중앙에서 생성한다. 일반탄은 항상 +x로 직진한다. 스킬탄은 매 틱 중심 거리 제곱이 가장 작은 살아 있는 적을 선택하고 정규화한 속도 벡터로 유도하며, 대상이 없으면 +x로 직진한다. 동률이면 `enemies` 배열에서 앞선 적을 선택한다.
+- 살아 있는 탄종별 개수가 각 `BalanceConfig.limits` 상한에 도달하면 해당 생성을 조용히 생략하고 해당 쿨다운을 리셋한다. 발사 요청은 버퍼링·큐잉하지 않는다.
+- **불변식 INV-FIRE-1:** 한 틱에서는 활성 모드의 탄종만 최대 1개 생성한다. `isSkillFiring === true`인 모든 틱에서 새 일반탄 수는 0이다.
+- **불변식 INV-MANA-1:** 모든 시스템 실행 후 MANA는 `[0, 100]`이며, 100에서 회복이나 일반탄 처치 보상이 추가되어도 100을 유지한다. 일반탄 처치만 `enemy.manaGain`을 지급하고 스킬탄 처치는 지급하지 않는다.
 
 #### (5) 적 생성·소멸과 난이도 (D-4 / D-5) — ★ 8방향 확정에 따른 전제 재검토 결과
 
@@ -491,11 +496,12 @@ player.y = clamp(player.y, 0, bounds.height - player.height)
 export interface Box { x: number; y: number; width: number; height: number }
 export interface EntityBase extends Box { id: number; alive: boolean }
 
-export interface Player     extends EntityBase { kind: 'player';     /* ... */ }
-export interface Enemy      extends EntityBase { kind: 'enemy';      /* ... */ }
-export interface Projectile extends EntityBase { kind: 'projectile'; /* ... */ }
+export interface Player            extends EntityBase { kind: 'player';            /* ... */ }
+export interface Enemy             extends EntityBase { kind: 'enemy';             /* ... */ }
+export interface RegularProjectile extends EntityBase { kind: 'regularProjectile'; /* ... */ }
+export interface SkillProjectile   extends EntityBase { kind: 'skillProjectile';   /* vx, vy, ... */ }
 
-export type Entity = Player | Enemy | Projectile;   // 판별 유니온
+export type Entity = Player | Enemy | RegularProjectile | SkillProjectile;
 export type EntityKind = Entity['kind'];            // 파생 — 손으로 다시 적지 않는다
 ```
 
@@ -517,7 +523,7 @@ default: {
 ### 6.4 순수 로직 분리 규약
 
 - `game/systems/*.ts`의 각 함수는 **하나의 관심사**만 처리하고, `stepWorld.ts`가 **정해진 순서**로 조립한다.
-  권장 순서: `input 반영 → weapon(발사) → movement(이동 + 플레이어 경계 클램프 + 적 좌측 이탈 판정) → spawner(스폰) → collision(판정) → combat(피해/사망/점수, 무적 시간 감소) → progression(마나/레벨/게임오버) → 죽은 엔티티 정리`
+  권장 순서: `input 반영 → weapon(모드·MANA·발사) → movement(이동 + 플레이어 경계 클램프 + 적 좌측 이탈 + 탄종별 이동) → spawner(스폰) → collision(탄종별 판정) → combat(탄종별 보상/피해/사망/점수, 무적 시간 감소) → progression(MANA 포화/레벨/게임오버) → 죽은 엔티티 정리`
   이 순서는 `invariants.md`에 명문화하고 변경 시 계약 개정을 거친다.
   - **클램프는 `movement` 단계 안에서** 이동 적용 직후 수행한다(§6.2.1-(3)). 별도 시스템으로 분리하지 않는다.
   - **무적 시간(`invulnRemainSec`)·발사 쿨다운은 각 담당 시스템에서 `-= dt`** 로 감소시키며, 감소와 판정 순서를 `invariants.md`에 고정한다.
@@ -577,12 +583,14 @@ default: {
 | | `width`, `height` | px | AABB 크기 |
 | | `speed` | **px/sec** | D-1 8방향 이동 속도(정규화 후 적용) |
 | | `maxHp` | 점 | HUD `♥ n / maxHp` |
-| | `fireCooldownSec` | **sec** | D-2 |
+| | `regularFireCooldownSec`, `skillFireCooldownSec` | **sec** | D-2 |
+| | `skillStartMana` | % | D-2/D-3 스킬 시작 임계값 |
+| | `manaRegenPerSec`, `skillManaDrainPerSec` | %/sec | D-3 일반 회복·스킬 소모 |
 | | **`invulnSec`** | **sec** | **8방향 확정으로 신설** — 피격 무적 시간(INV-DMG-1) |
-| `projectile` | `width`, `height` | px | |
-| | `speed` | px/sec | 항상 +x 방향(§6.2.1-(4)) |
-| | `damage` | 점 | |
-| | `lifetimeSec` | sec | 화면 밖 이탈 전 안전망 |
+| `regularProjectile` | `width`, `height` | px | 일반탄 AABB |
+| | `speed`, `damage`, `lifetimeSec` | px/sec, 점, sec | +x 직진 일반탄 |
+| `skillProjectile` | `width`, `height` | px | 스킬탄 AABB |
+| | `speed`, `damage`, `lifetimeSec` | px/sec, 점, sec | 최근접 적 유도 스킬탄 |
 | `enemy` | `width`, `height` | px | |
 | | `speed` | px/sec | D-5 좌측 직진(x 감소) |
 | | `hp` | 점 | |
@@ -596,7 +604,7 @@ default: {
 | `progression` | `manaMax` | % | D-3 (=100) |
 | | `levelUpScoreStep` | 점 | D-4 레벨업 점수 임계 간격 |
 | | `maxLevel` | 정수 또는 무제한 표기 | 난이도 상한 |
-| `limits` | `maxEnemies`, `maxProjectiles` | 개 | §6.10 성능 예산 |
+| `limits` | `maxEnemies`, `maxRegularProjectiles`, `maxSkillProjectiles` | 개 | §6.10 성능 예산 |
 | `loop` | `FIXED_STEP_MS`, `MAX_FRAME_MS`, `MAX_SUBSTEPS`, `HUD_PUBLISH_INTERVAL_MS` | ms / 회 | §6.1, §6.2 |
 
 ### 6.7 그레이박스 렌더 규약 (★ 유지)
@@ -609,7 +617,8 @@ default: {
 | `background` | `#222222` | 캔버스 배경 |
 | `player` | `#FFB6C1` | 에르핀 |
 | `enemy` | `#90EE90` | 슬라임 |
-| `projectile` | `#FFD700` | 투사체 |
+| `regularProjectile` | `#FFD700` | 일반탄 |
+| `skillProjectile` | `#00FFFF` | 스킬탄 |
 | `hitFlash` | `#FF4D4D` | 피격 프레임 강조 |
 | `debug` | `#00E5FF` | 히트박스 외곽선(디버그 토글 시) |
 
@@ -717,8 +726,8 @@ default: {
 | dt 개념 없음 | 고정 스텝 + 누산기 | 프레임률 독립성 및 테스트 재현성(§6.2) |
 | `canvasRef.current` / `getContext` 널 미처리 | strict 하에서 **널 가드 필수**(`!` 단언 금지) | 런타임 크래시 차단(§6.5.3) |
 | 매직 넘버 인라인(50, 300, 40, 800, 600 …) | `balance.ts` 단일 집약 + `as const satisfies` | 튜닝 지점 일원화(§6.6) |
-| **플레이어 이동: 미구현**(좌표 고정, 입력 처리 없음) | **8방향 자유 이동 + 대각선 속도 정규화 + x·y 양축 경계 클램프** | §9 D-1 확정. 이동·재시작 의미 입력 5종(`event.code`), `INV-MOVE-1/2` 불변식 신설(§6.2.1) |
-| 발사·적 이동·충돌 미구현(TODO 주석) | 0.3초 주기 플레이어 자동 발사, 적 좌측 직진·이탈 시 제거, 직접 접촉 피해와 **피격 무적 시간 신설** | §9 D-2/D-5 확정. 8방향 이동으로 플레이어가 적에게 돌진 가능해져 `INV-DMG-1`(무적 시간)이 필수가 됨(§6.2.1-(5)) |
+| **플레이어 이동: 미구현**(좌표 고정, 입력 처리 없음) | **8방향 자유 이동 + 대각선 속도 정규화 + x·y 양축 경계 클램프** | §9 D-1 확정. 이동·스킬·재시작 의미 입력 6종(`event.code`), `INV-MOVE-1/2` 불변식 신설(§6.2.1) |
+| 단일 투사체 배열과 수동 갱신 | 일반탄·스킬탄 타입/배열/이동/충돌/렌더 분리, 0.3초 일반 자동 발사와 MANA 유도 스킬 | §9 D-2/D-3 확정. 탄종별 에셋·이펙트 확장 시 로직 분기 확산 방지 |
 | 재시작 수단 없음 | 게임오버 오버레이 + `R` 키 → `createWorld()` 재호출 + `hudStore.reset()` | §9 D-6 확정(§6.2.1-(6), §6.9) |
 
 ---
@@ -731,8 +740,8 @@ default: {
 | # | 항목 | 확정 사양 | 상세 규약 |
 | --- | --- | --- | --- |
 | **D-1** | 플레이어 이동 | **8방향 자유 이동.** 캔버스 전역(800x600)을 이동하며 **x·y 모두 화면 경계로 클램프**된다. 대각선 동시 입력 시 **속도 정규화** 필수. | §6.2.1 |
-| **D-2** | 발사 방식 | **플레이어 자동 발사 + 0.3초 쿨다운.** 새 월드의 첫 플레이 틱에 즉시 발사하고 이후 쿨다운이 준비될 때마다 입력 없이 발사한다. 쿨다운 잔여 중에는 생성하지 않는다. | §6.2.1 |
-| **D-3** | MANA | **적 처치 시 누적, 100% 도달 시 0으로 리셋.** 이번 단계는 **게이지 표시까지만** 구현하며 스킬 발동은 차기 단계로 미룬다. | §6.2.1, §6.9 |
+| **D-2** | 발사 방식 | **일반탄과 스킬탄 완전 분리.** 일반탄은 0.3초 자동 발사, Space 스킬 중에는 중지한다. 스킬탄은 0.15초마다 최근접 적을 유도하며 스킬 종료 후 일반탄을 재개한다. | §6.2.1 |
+| **D-3** | MANA | **0~100 포화 자원.** 일반 상태에서 초당 5 회복하고 일반탄 처치로 5를 얻으며, 스킬 중 초당 30 소모한다. 20 이상에서 스킬을 시작하고 스킬탄 처치는 MANA를 지급하지 않는다. | §6.2.1, §6.9 |
 | **D-4** | 레벨업 | **점수 임계값 기반.** 레벨 상승 시 **스폰 주기가 단축**된다(이번 단계 난이도 상승의 유일한 축). | §6.2.1 |
 | **D-5** | 적 행동 | **좌측 방향 직진**(x 감소). 화면 **좌측 경계를 이탈하면 HP 변화 없이 해당 적만 제거**. 플레이어 HP는 직접 접촉 시에만 감소한다. | §6.2.1 |
 | **D-6** | 재시작 | **게임오버 오버레이 표시 + `R` 키로 재시작** (`createWorld()` 재호출로 월드 전체 재생성, `hudStore.reset()` 동반). | §6.2.1, §6.9 |
@@ -758,6 +767,6 @@ default: {
 - [x] §8이 "JS → TS 전환"을 포함해 갱신되었는가 → §8
 - [x] 유지 지시 항목(§6.1 HUD 동기화, §6.2 고정 타임스텝, §6.7 그레이박스 렌더)이 보존되었는가 → 전부 유지
 - [x] **§9가 「미결 사항」에서 「확정된 게임 디자인 결정」(D-1~D-7)으로 갱신되고 조건부 서술이 전부 제거되었는가** → §9
-- [x] **D-1(8방향 이동) 파급이 문서 전체에 반영되었는가** → §6.2.1 신설(이동·재시작 의미 입력 5종·대각선 정규화·양축 클램프·스폰/이탈/무적·재시작), §6.4 실행 순서, §6.6.1 balance 키, §5.2 계약 산출물, §6.9 오버레이, §8, §9
+- [x] **D-1(8방향 이동) 파급이 문서 전체에 반영되었는가** → §6.2.1 신설(이동·스킬·재시작 의미 입력 6종·대각선 정규화·양축 클램프·스폰/이탈/무적·재시작), §6.4 실행 순서, §6.6.1 balance 키, §5.2 계약 산출물, §6.9 오버레이, §8, §9
 - [x] `tech-leader`가 추측 없이 `BalanceConfig`를 정의할 수 있도록 키·단위 목록이 제공되었는가 → §6.6.1
 - [x] 배포/인프라를 설계하지 않고 범위 밖으로만 선언했는가 → §1.2, §6.10

@@ -23,7 +23,10 @@ export function drawScene(ctx: CanvasRenderingContext2D, world: Readonly<GameWor
   for (const enemy of world.enemies) {
     drawEntity(ctx, enemy);
   }
-  for (const projectile of world.projectiles) {
+  for (const projectile of world.regularProjectiles) {
+    drawEntity(ctx, projectile);
+  }
+  for (const projectile of world.skillProjectiles) {
     drawEntity(ctx, projectile);
   }
 }

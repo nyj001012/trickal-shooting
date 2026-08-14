@@ -6,17 +6,18 @@
 
 ## 핵심 데이터 모델
 
-| 타입          | 주요 필드                                                                          | 의미                                |
-| ------------- | ---------------------------------------------------------------------------------- | ----------------------------------- |
-| `GameWorld`   | `bounds`, `player`, `enemies`, `projectiles`, `session`, `spawner`, `nextEntityId` | 한 플레이 세션의 전체 인메모리 상태 |
-| `GameSession` | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                  | HUD와 진행 상태의 SSOT              |
-| `Player`      | 공통 Box 필드, `fireCooldownRemainSec`, `invulnRemainSec`                          | 플레이어 엔티티                     |
-| `Enemy`       | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`                     | 좌측으로 이동하는 적                |
-| `Projectile`  | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                       | 우측으로 이동하는 투사체            |
-| `InputState`  | `up`, `down`, `left`, `right`, `restart`                                           | DOM 코드에서 변환된 의미 기반 입력  |
-| `HudSnapshot` | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                  | React가 구독하는 읽기 전용 투영     |
+| 타입                | 주요 필드                                                                                                       | 의미                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `session`, `spawner`, `nextEntityId`   | 한 플레이 세션의 전체 인메모리 상태 |
+| `GameSession`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | HUD와 진행 상태의 SSOT              |
+| `Player`            | 공통 Box 필드, `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`, `invulnRemainSec` | 플레이어 엔티티                     |
+| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`                                                  | 좌측으로 이동하는 적                |
+| `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄            |
+| `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`                                                        | 최근접 생존 적을 유도하는 스킬탄    |
+| `InputState`        | `up`, `down`, `left`, `right`, `skill`, `restart`                                                               | DOM 코드에서 변환된 의미 기반 입력  |
+| `HudSnapshot`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | React가 구독하는 읽기 전용 투영     |
 
-모든 엔티티는 재사용되지 않는 `id`, 판별자 `kind`, 지연 제거용 `alive`를 갖는다. `Entity`는 `Player | Enemy | Projectile` 판별 유니온이다.
+모든 엔티티는 재사용되지 않는 `id`, 판별자 `kind`, 지연 제거용 `alive`를 갖는다. `Entity`는 `Player | Enemy | RegularProjectile | SkillProjectile` 판별 유니온이다.
 
 ## 월드와 유틸리티 API
 
@@ -31,15 +32,15 @@
 
 ## 시스템 API
 
-| import                       | 시그니처 요약                              | 변경 대상                                 |
-| ---------------------------- | ------------------------------------------ | ----------------------------------------- |
-| `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                      |
-| `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음                                      |
-| `@/game/systems/weapon`      | `fireWeapon(world, dt): void`              | 쿨다운, 투사체, 다음 ID                   |
-| `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명, 이탈 적 제거            |
-| `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID             |
-| `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·투사체 생존, SCORE·MANA, 무적 시간 |
-| `@/game/systems/progression` | `applyProgression(world): void`            | MANA 리셋, LEVEL·스폰 주기, 게임 상태     |
+| import                       | 시그니처 요약                              | 변경 대상                                       |
+| ---------------------------- | ------------------------------------------ | ----------------------------------------------- |
+| `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                            |
+| `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음, 탄종별 hit 배열 반환                      |
+| `@/game/systems/weapon`      | `fireWeapon(world, input, dt): void`       | 두 쿨다운·스킬 상태, MANA, 탄종별 배열, 다음 ID |
+| `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명·스킬탄 속도, 이탈 적 제거      |
+| `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID                   |
+| `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·탄종별 생존, SCORE·MANA, 무적 시간       |
+| `@/game/systems/progression` | `applyProgression(world): void`            | MANA 포화, LEVEL·스폰 주기, 게임 상태           |
 
 ### 충돌 경계
 
@@ -57,11 +58,14 @@
 - HP 감소는 직접 접촉 피해로만 발생한다.
 - HP는 0 아래로 내려가지 않는다.
 
-### 자동 발사 규칙
+### 일반탄·스킬탄 발사 규칙
 
-- 새 월드는 발사 쿨다운 0으로 시작해 첫 번째 `playing` 틱에 투사체를 즉시 생성한다.
-- 이후 입력과 무관하게 0.3초마다 한 발을 자동 생성하며 투사체는 항상 오른쪽으로 이동한다.
-- 살아 있는 투사체가 최대 60개이면 생성을 생략하고 쿨다운만 다시 시작한다.
+- 새 월드는 두 발사 쿨다운이 0이고 `isSkillFiring`은 `false`다. 첫 `playing` 틱에는 일반탄을 즉시 생성한다.
+- 일반 상태에서는 MANA를 초당 5 회복하며 0.3초마다 일반탄을 자동 생성한다. 일반탄은 오른쪽으로 직진하고 적 처치 시 MANA 5를 지급한다.
+- `input.skill`이 `true`이고 MANA가 20 이상이면 스킬 상태를 시작한다. 시작 뒤에는 MANA가 20 미만이어도 Space를 누르고 MANA가 남은 동안 유지한다.
+- 스킬 상태에서는 일반탄 생성과 자연 회복을 중지하고, MANA를 초당 30 소모하며 0.15초마다 스킬탄을 생성한다. 스킬탄은 최근접 생존 적을 추적하고 처치 시 SCORE만 지급한다.
+- MANA는 모든 변경 뒤 0~100 범위로 포화된다. 100에서 회복이나 일반탄 처치 보상이 추가되어도 100을 유지한다.
+- 살아 있는 일반탄 또는 스킬탄이 각 탄종의 최대 60개에 도달하면 해당 생성을 생략하고 해당 쿨다운만 다시 시작한다.
 
 ## HUD Store API
 
@@ -110,16 +114,17 @@ await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(100));
 
 ## 키 바인딩
 
-| 동작   | `KeyboardEvent.code` |
-| ------ | -------------------- |
-| 위     | `ArrowUp`, `KeyW`    |
-| 아래   | `ArrowDown`, `KeyS`  |
-| 왼쪽   | `ArrowLeft`, `KeyA`  |
-| 오른쪽 | `ArrowRight`, `KeyD` |
-| 재시작 | `KeyR`               |
+| 동작      | `KeyboardEvent.code` |
+| --------- | -------------------- |
+| 위        | `ArrowUp`, `KeyW`    |
+| 아래      | `ArrowDown`, `KeyS`  |
+| 왼쪽      | `ArrowLeft`, `KeyA`  |
+| 오른쪽    | `ArrowRight`, `KeyD` |
+| 스킬 발사 | `Space`              |
+| 재시작    | `KeyR`               |
 
-발사는 키 입력 없이 자동으로 수행된다. 추적하는 이동·재시작 키는 기본 브라우저 동작을 막고, 창이 포커스를 잃으면 모든 입력 플래그를 초기화한다.
+일반탄은 키 입력 없이 자동으로 수행되고 Space는 스킬 발사만 제어한다. 추적하는 이동·스킬·재시작 키는 기본 브라우저 동작을 막고, 창이 포커스를 잃으면 모든 입력 플래그를 초기화한다.
 
 ## 밸런스 계약
 
-실제 값은 `src/game/balance.ts`의 `BALANCE`에 있고 `BalanceConfig`를 만족해야 한다. 그룹은 `canvas`, `player`, `projectile`, `enemy`, `spawn`, `progression`, `limits`, `loop`이며 키 이름이나 구조를 바꾸려면 계약 개정이 필요하다.
+실제 값은 `src/game/balance.ts`의 `BALANCE`에 있고 `BalanceConfig`를 만족해야 한다. 그룹은 `canvas`, `player`, `regularProjectile`, `skillProjectile`, `enemy`, `spawn`, `progression`, `limits`, `loop`이며 키 이름이나 구조를 바꾸려면 계약 개정이 필요하다.
