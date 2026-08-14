@@ -2,3 +2,4 @@
 {"timestamp":"2026-08-14T00:05:00Z","phase":"Phase 1","status":"START","task_batch":["#1 시스템 아키텍처 및 기술 스택 확정 (design.md)"]}
 {"timestamp":"2026-08-14T00:40:00Z","phase":"Phase 1","status":"END","task_batch":["#1 design.md 산출 및 TypeScript 전환 개정(v3.0) 완료"],"note":"사용자 지시로 언어를 JS+JSDoc → TypeScript strict로 개정. 계약 형식은 tech-leader가 src/contracts/** 타입 소스를 직접 소유하는 (a)안 채택."}
 {"timestamp":"2026-08-14T00:45:00Z","phase":"Phase 2","status":"START","task_batch":["#2 이슈 티켓 생성 및 브랜치 파생","#3 인터페이스 계약 설계"],"design_decisions_confirmed":{"O-1":"8방향 자유 이동 (기본가정 '상하만'에서 사용자 변경)","O-2":"스페이스바 수동 발사 + 쿨다운","O-3":"MANA 게이지 표시만 (스킬 발동은 차기)","O-4":"점수 임계 레벨업 → 스폰 주기 단축","O-5":"적 좌측 직진, 화면 이탈 시 HP 1 감소","O-6":"게임오버 오버레이 + R 키 재시작","O-7":"히트박스 디버그 내부 플래그만"}}
+{"timestamp":"2026-08-14T01:30:00Z","phase":"Phase 2","status":"END","task_batch":["#2 이슈 #1 생성 및 feature/1-greybox-game-screen 브랜치 파생 완료","#3 인터페이스 계약 설계 완료 (src/contracts 6파일 + 03_contracts 3문서, tsc --strict exit 0 검증)"]}
