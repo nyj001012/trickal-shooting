@@ -82,9 +82,6 @@ test.describe('풀페이지 반응형 레이아웃', () => {
       for (let index = 1; index < hudBoxes.length; index += 1) {
         const previous = hudBoxes[index - 1];
         const current = hudBoxes[index];
-        if (!previous || !current) {
-          throw new Error('HUD 항목 경계 상자가 누락되었습니다.');
-        }
         expect(previous.x + previous.width).toBeLessThanOrEqual(current.x + 1);
       }
 
