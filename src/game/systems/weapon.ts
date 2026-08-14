@@ -3,7 +3,7 @@
  * INV-FIRE-1, INV-MANA-1).
  * @module @/game/systems/weapon
  */
-import type { FireWeapon, GameWorld } from '@/contracts';
+import type { FireWeapon, GameWorld, Rng } from '@/contracts';
 
 import { BALANCE } from '../balance';
 
@@ -35,7 +35,7 @@ function fireRegularProjectile(world: GameWorld): void {
   world.player.regularFireCooldownRemainSec = BALANCE.player.regularFireCooldownSec;
 }
 
-function fireSkillProjectile(world: GameWorld): void {
+function fireSkillProjectile(world: GameWorld, rng: Rng): void {
   const aliveCount = world.skillProjectiles.filter((projectile) => projectile.alive).length;
   if (aliveCount < BALANCE.limits.maxSkillProjectiles) {
     world.skillProjectiles.push({
@@ -49,14 +49,15 @@ function fireSkillProjectile(world: GameWorld): void {
       damage: BALANCE.skillProjectile.damage,
       lifetimeRemainSec: BALANCE.skillProjectile.lifetimeSec,
       vx: BALANCE.skillProjectile.speed,
-      vy: 0,
+      vy: (rng() - 0.5) * 2 * BALANCE.skillProjectile.initialSpreadSpeedY,
+      turnFactor: BALANCE.skillProjectile.turnFactor,
     });
     world.nextEntityId += 1;
   }
   world.player.skillFireCooldownRemainSec = BALANCE.player.skillFireCooldownSec;
 }
 
-export const fireWeapon: FireWeapon = (world, input, dt): void => {
+export const fireWeapon: FireWeapon = (world, input, dt, rng): void => {
   world.player.regularFireCooldownRemainSec = tickCooldown(
     world.player.regularFireCooldownRemainSec,
     dt,
@@ -77,7 +78,7 @@ export const fireWeapon: FireWeapon = (world, input, dt): void => {
   if (world.player.isSkillFiring) {
     world.session.mana = clampMana(world.session.mana - BALANCE.player.skillManaDrainPerSec * dt);
     if (world.player.skillFireCooldownRemainSec <= 0) {
-      fireSkillProjectile(world);
+      fireSkillProjectile(world, rng);
     }
     if (world.session.mana <= 0) {
       world.player.isSkillFiring = false;

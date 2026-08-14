@@ -184,6 +184,33 @@ describe('applyMovement — skill-projectile homing and expiry (D-2)', () => {
     expect(moved.y).toBeCloseTo(100 + moved.vy * DT, 5);
   });
 
+  it('turns gradually toward a target instead of snapping to its desired velocity', () => {
+    const projectile = makeSkillProjectile({
+      x: 100,
+      y: 100,
+      vx: BALANCE.skillProjectile.speed,
+      vy: 0,
+      turnFactor: BALANCE.skillProjectile.turnFactor,
+    });
+    const target = makeEnemy({
+      x: projectile.x + projectile.width / 2 - BALANCE.enemy.width / 2 + BALANCE.enemy.speed * DT,
+      y: 300,
+    });
+    const world = makeWorld({ enemies: [target], skillProjectiles: [projectile] });
+
+    applyMovement(world, makeInputState(), DT);
+
+    const moved = world.skillProjectiles[0];
+    const steeredVx = BALANCE.skillProjectile.speed * (1 - projectile.turnFactor);
+    const steeredVy = BALANCE.skillProjectile.speed * projectile.turnFactor;
+    const steeredSpeed = Math.hypot(steeredVx, steeredVy);
+    expect(moved.vx).toBeCloseTo((steeredVx / steeredSpeed) * BALANCE.skillProjectile.speed, 5);
+    expect(moved.vy).toBeCloseTo((steeredVy / steeredSpeed) * BALANCE.skillProjectile.speed, 5);
+    expect(moved.vx).toBeGreaterThan(0);
+    expect(moved.vy).toBeGreaterThan(0);
+    expect(Math.hypot(moved.vx, moved.vy)).toBeCloseTo(BALANCE.skillProjectile.speed, 5);
+  });
+
   it('uses the first enemy in array order when nearest distances are tied', () => {
     const projectile = makeSkillProjectile({ x: 100, y: 100, vx: 0, vy: 0 });
     const first = makeEnemy({ id: 1, x: 250, y: 68 });
@@ -193,16 +220,51 @@ describe('applyMovement — skill-projectile homing and expiry (D-2)', () => {
     expect(world.skillProjectiles[0].vy).toBeLessThan(0);
   });
 
-  it('travels straight right when no alive target exists', () => {
-    const projectile = makeSkillProjectile({ x: 100, y: 100, vx: 0, vy: 99 });
+  it('retains its current inertia when no alive target exists', () => {
+    const projectile = makeSkillProjectile({ x: 100, y: 100, vx: 700, vy: 120 });
     const world = makeWorld({
       enemies: [makeEnemy({ alive: false })],
       skillProjectiles: [projectile],
     });
     applyMovement(world, makeInputState(), DT);
-    expect(world.skillProjectiles[0].vx).toBe(BALANCE.skillProjectile.speed);
-    expect(world.skillProjectiles[0].vy).toBe(0);
-    expect(world.skillProjectiles[0].x).toBeCloseTo(100 + BALANCE.skillProjectile.speed * DT, 5);
+    expect(world.skillProjectiles[0].vx).toBe(700);
+    expect(world.skillProjectiles[0].vy).toBe(120);
+    expect(world.skillProjectiles[0].x).toBeCloseTo(100 + 700 * DT, 5);
+    expect(world.skillProjectiles[0].y).toBeCloseTo(100 + 120 * DT, 5);
+  });
+
+  it('falls back to the desired velocity when steering produces a zero or non-finite vector', () => {
+    const zeroVector = makeSkillProjectile({
+      x: 100,
+      y: 100,
+      vx: -BALANCE.skillProjectile.speed,
+      vy: 0,
+      turnFactor: 0.5,
+    });
+    const nonFiniteVector = makeSkillProjectile({
+      id: 4,
+      x: 100,
+      y: 100,
+      vx: Number.POSITIVE_INFINITY,
+      vy: 0,
+    });
+    const target = makeEnemy({
+      x: 202,
+      y: 96,
+    });
+    const world = makeWorld({
+      enemies: [target],
+      skillProjectiles: [zeroVector, nonFiniteVector],
+    });
+
+    applyMovement(world, makeInputState(), DT);
+
+    for (const moved of world.skillProjectiles) {
+      expect(Number.isFinite(moved.vx)).toBe(true);
+      expect(Number.isFinite(moved.vy)).toBe(true);
+      expect(moved.vx).toBe(BALANCE.skillProjectile.speed);
+      expect(moved.vy).toBe(0);
+    }
   });
 
   it('expires a skill projectile by lifetime or after fully crossing any playfield edge', () => {

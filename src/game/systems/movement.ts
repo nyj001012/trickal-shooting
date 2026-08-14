@@ -76,19 +76,26 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
   for (const projectile of world.skillProjectiles) {
     if (!projectile.alive) continue;
     const target = nearestAliveEnemy(projectile, world.enemies);
-    if (target === undefined) {
-      projectile.vx = BALANCE.skillProjectile.speed;
-      projectile.vy = 0;
-    } else {
+    if (target !== undefined) {
       const targetDx = target.x + target.width / 2 - (projectile.x + projectile.width / 2);
       const targetDy = target.y + target.height / 2 - (projectile.y + projectile.height / 2);
       const targetDistance = Math.hypot(targetDx, targetDy);
-      if (targetDistance > 0) {
-        projectile.vx = (targetDx / targetDistance) * BALANCE.skillProjectile.speed;
-        projectile.vy = (targetDy / targetDistance) * BALANCE.skillProjectile.speed;
+      let desiredVx = BALANCE.skillProjectile.speed;
+      let desiredVy = 0;
+      if (Number.isFinite(targetDistance) && targetDistance > Number.EPSILON) {
+        desiredVx = (targetDx / targetDistance) * BALANCE.skillProjectile.speed;
+        desiredVy = (targetDy / targetDistance) * BALANCE.skillProjectile.speed;
+      }
+
+      const steeredVx = projectile.vx + (desiredVx - projectile.vx) * projectile.turnFactor;
+      const steeredVy = projectile.vy + (desiredVy - projectile.vy) * projectile.turnFactor;
+      const steeredSpeed = Math.hypot(steeredVx, steeredVy);
+      if (Number.isFinite(steeredSpeed) && steeredSpeed > Number.EPSILON) {
+        projectile.vx = (steeredVx / steeredSpeed) * BALANCE.skillProjectile.speed;
+        projectile.vy = (steeredVy / steeredSpeed) * BALANCE.skillProjectile.speed;
       } else {
-        projectile.vx = BALANCE.skillProjectile.speed;
-        projectile.vy = 0;
+        projectile.vx = desiredVx;
+        projectile.vy = desiredVy;
       }
     }
 

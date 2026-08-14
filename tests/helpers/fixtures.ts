@@ -97,6 +97,7 @@ export function makeSkillProjectile(overrides: Partial<SkillProjectile> = {}): S
     lifetimeRemainSec: 2,
     vx: 720,
     vy: 0,
+    turnFactor: 0.08,
     ...overrides,
   };
 }

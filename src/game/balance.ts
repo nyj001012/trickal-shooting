@@ -61,6 +61,10 @@ export const BALANCE = {
     height: 20,
     /** px/sec */
     speed: 720,
+    /** px/sec */
+    initialSpreadSpeedY: 120,
+    /** 0-1 per fixed tick */
+    turnFactor: 0.08,
     /** count */
     damage: 1,
     /** sec */
