@@ -24,7 +24,14 @@ export default tseslint.config(
       ecmaVersion: 2022,
       globals: { ...globals.browser, ...globals.node },
       parserOptions: {
-        projectService: true,
+        // Keep one project-service configuration for the whole ESLint process. The
+        // parser service is shared across matching config blocks, so switching its
+        // default project only for root config files becomes order-dependent once
+        // Vitest setup and Playwright config are linted in the same invocation.
+        projectService: {
+          allowDefaultProject: ['*.config.ts'],
+          defaultProject: 'tsconfig.node.json',
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },

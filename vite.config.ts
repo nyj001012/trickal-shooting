@@ -26,6 +26,7 @@ export default defineConfig({
     strictPort: true,
   },
   test: {
+    include: ['tests/**/*.test.{ts,tsx}'],
     environment: 'node',
     setupFiles: ['./vitest.setup.ts'],
     globals: false,
