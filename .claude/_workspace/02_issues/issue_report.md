@@ -85,3 +85,35 @@
 | URL | https://github.com/nyj001012/trickal-shooting/pull/4 |
 | 기준/작업 브랜치 | `main` ← `chore/3-codex-run-pipeline-skill` |
 | 상태 | Open |
+
+---
+
+# Issue PM 산출 보고서 — Task #5
+
+- **작성:** Codex (run-pipeline)
+- **일시:** 2026-08-14
+- **플랫폼:** GitHub
+
+## 생성된 이슈
+
+| 항목 | 값 |
+| --- | --- |
+| 이슈 번호 | #5 |
+| URL | https://github.com/nyj001012/trickal-shooting/issues/5 |
+| 제목 | `[Frontend] 풀페이지 반응형 게임 레이아웃 지원` |
+| 상태 | Open |
+
+## 파생된 브랜치
+
+| 항목 | 값 |
+| --- | --- |
+| 브랜치명 | `feature/5-responsive-fullpage-layout` |
+| 파생 기준 | 최신 `origin/main` (`20f761e`) |
+
+## 완료 조건
+
+- [ ] 논리 800x600을 유지하면서 게임 보드를 뷰포트 최대 4:3 크기로 표시
+- [ ] 캔버스 고정 인라인 표시 크기 제거 및 HUD를 게임 보드 내부에 배치
+- [ ] 데스크톱·태블릿·모바일 가로 대표 뷰포트 E2E 통과
+- [ ] lint, typecheck, unit/component test, format, build 통과
+- [ ] 작업 브랜치 Push 및 이슈 #5를 연결한 PR 생성
