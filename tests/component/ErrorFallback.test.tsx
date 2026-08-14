@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { ErrorFallback } from '@/ui/ErrorFallback';
 
-afterEach(cleanup);
+// DOM cleanup between tests is registered globally in vitest.setup.ts (FE-DEV owned,
+// `afterEach(() => cleanup())`) to work around `test.globals: false` (vite.config.ts).
+//
+// The static title copy was changed (per frontend-developer) so it can never
+// coincidentally equal a test's `message` prop value, so this can safely go back to
+// asserting the message renders exactly once.
 
 describe('ErrorFallback — loop-crash fallback UI (§6.10)', () => {
-  it('renders the provided message text to the user at least once', () => {
+  it('renders the provided message text', () => {
     render(<ErrorFallback message="문제가 발생했습니다." />);
-    // Only presence is contractually required (ErrorFallbackProps has a single
-    // `message: string` field, design.md §5.3 rule 2) — how many times the
-    // component chooses to echo it (e.g. a visually-hidden live-region duplicate
-    // for screen readers) is an implementation detail this test does not pin down.
-    expect(screen.getAllByText('문제가 발생했습니다.').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('문제가 발생했습니다.')).toBeInTheDocument();
   });
 });

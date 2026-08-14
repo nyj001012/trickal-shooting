@@ -1,14 +1,11 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { Hud } from '@/ui/Hud';
 import type { HudSnapshot } from '@/contracts';
 
-// vite.config.ts sets `test.globals: false`, so @testing-library/react's automatic
-// cleanup (which relies on detecting a global `afterEach`) never registers itself.
-// Without this, each `render()` below would leave its DOM tree mounted for the next
-// `it()` in this file, causing bogus "multiple elements found" failures.
-afterEach(cleanup);
+// DOM cleanup between tests is registered globally in vitest.setup.ts (FE-DEV owned,
+// `afterEach(() => cleanup())`) to work around `test.globals: false` (vite.config.ts).
 
 describe('Hud — display-string formats and data-testid (ui-contracts.md §1)', () => {
   const snapshot: HudSnapshot = { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' };
