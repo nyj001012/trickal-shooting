@@ -30,7 +30,7 @@ describe('GameBoard — initial render (design.md §6.1, ui-contracts.md §1)', 
 });
 
 describe('GameBoard — keyboard input (ui-contracts.md §2) does not crash the loop', () => {
-  it('accepts every bound movement/fire key without throwing and keeps the HUD in a valid textual state', () => {
+  it('accepts every bound movement key without throwing and keeps the HUD in a valid textual state', () => {
     render(<GameBoard />);
     const codes = [
       'ArrowRight',
@@ -41,7 +41,6 @@ describe('GameBoard — keyboard input (ui-contracts.md §2) does not crash the 
       'KeyA',
       'ArrowDown',
       'KeyS',
-      'Space',
     ];
     for (const code of codes) {
       act(() => {
@@ -54,6 +53,17 @@ describe('GameBoard — keyboard input (ui-contracts.md §2) does not crash the 
       });
     }
     expect(screen.getByTestId('hud-hp')).toHaveTextContent(/^♥ \d+ \/ \d+$/);
+  });
+
+  it('does not track or prevent the obsolete Space fire key', () => {
+    render(<GameBoard />);
+    const event = new KeyboardEvent('keydown', { code: 'Space', cancelable: true });
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 
@@ -77,7 +87,26 @@ describe('GameBoard — game-over overlay (D-6, ui-contracts.md §3) via the E2E
       `♥ ${BALANCE.player.maxHp} / ${BALANCE.player.maxHp}`,
     );
     expect(screen.queryByTestId('game-over')).not.toBeInTheDocument();
-    expect(window.__TRICKAL_TEST__?.getSnapshot().status).toBe('playing');
+    const snapshot = window.__TRICKAL_TEST__?.getSnapshot();
+    expect(snapshot?.status).toBe('playing');
+  });
+
+  it('automatically fires and defeats enemies without a fire-key input', async () => {
+    window.history.pushState({}, '', '/?e2e=1');
+    render(<GameBoard />);
+
+    await waitFor(() => {
+      expect(window.__TRICKAL_TEST__).toBeDefined();
+    });
+
+    act(() => {
+      window.__TRICKAL_TEST__?.seed(6);
+      window.__TRICKAL_TEST__?.stepFrames(2000);
+    });
+
+    const snapshot = window.__TRICKAL_TEST__?.getSnapshot();
+    expect(snapshot?.score).toBeGreaterThan(0);
+    expect(snapshot?.mana).toBeGreaterThan(0);
   });
 
   it('shows the fixed "GAME OVER" / "Press R to Restart" text after direct enemy contacts deplete HP', async () => {
@@ -90,7 +119,7 @@ describe('GameBoard — game-over overlay (D-6, ui-contracts.md §3) via the E2E
 
     act(() => {
       window.__TRICKAL_TEST__?.seed(6);
-      window.__TRICKAL_TEST__?.stepFrames(2000);
+      window.__TRICKAL_TEST__?.stepFrames(6000);
     });
 
     await waitFor(() => {

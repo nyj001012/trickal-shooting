@@ -30,7 +30,7 @@ export const BALANCE = {
     /** count */
     maxHp: 3,
     /** sec */
-    fireCooldownSec: 0.35,
+    fireCooldownSec: 0.3,
     /** sec */
     invulnSec: 1.0,
   },

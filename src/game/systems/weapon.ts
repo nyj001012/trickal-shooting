@@ -1,16 +1,17 @@
 /**
- * Player fire control: cooldown always ticks down first; a shot is spawned only when
- * ready AND `input.fire` is held (no buffering/queueing — D-2, INV-FIRE-1).
+ * Automatic player fire: cooldown always ticks down first; a shot is spawned whenever
+ * it becomes ready, without reading user input (D-2, INV-FIRE-1).
  * @module @/game/systems/weapon
  */
 import type { FireWeapon } from '@/contracts';
 
 import { BALANCE } from '../balance';
 
-export const fireWeapon: FireWeapon = (world, input, dt): void => {
-  world.player.fireCooldownRemainSec = Math.max(0, world.player.fireCooldownRemainSec - dt);
+export const fireWeapon: FireWeapon = (world, dt): void => {
+  const nextCooldown = world.player.fireCooldownRemainSec - dt;
+  world.player.fireCooldownRemainSec = nextCooldown <= Number.EPSILON ? 0 : nextCooldown;
 
-  if (world.player.fireCooldownRemainSec > 0 || !input.fire) {
+  if (world.player.fireCooldownRemainSec > 0) {
     return;
   }
   if (

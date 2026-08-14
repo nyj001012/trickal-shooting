@@ -9,7 +9,6 @@ describe('createInputState', () => {
       down: false,
       left: false,
       right: false,
-      fire: false,
       restart: false,
     });
   });

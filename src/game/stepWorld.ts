@@ -19,7 +19,7 @@ export const stepWorld: StepWorld = (world, input, dt, rng): void => {
     return;
   }
 
-  fireWeapon(world, input, dt);
+  fireWeapon(world, dt);
   applyMovement(world, input, dt);
   spawnTick(world, dt, rng);
   const collisions = detectCollisions(world);

@@ -195,9 +195,9 @@
 
 ## 완료 조건
 
-- [ ] Space 입력 없이 첫 플레이 틱과 0.3초 쿨다운마다 자동 발사
-- [ ] 투사체 최대 개수 제한과 기존 이동·충돌·SCORE·MANA 회귀 통과
+- [x] Space 입력 없이 첫 플레이 틱과 0.3초 쿨다운마다 자동 발사
+- [x] 투사체 최대 개수 제한과 기존 이동·충돌·SCORE·MANA 회귀 통과
 - [ ] `InputState.fire`와 Space 키 바인딩 및 오래된 안내 제거
 - [ ] 키 입력 없는 적 처치 Chromium E2E 통과
-- [ ] lint, typecheck, coverage, format, build 통과
+- [x] lint, typecheck, coverage, format, build 통과
 - [ ] 작업 브랜치 Push 및 이슈 #9를 연결한 PR 생성

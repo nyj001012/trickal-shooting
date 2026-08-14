@@ -14,7 +14,7 @@ describe('stepWorld — no-op unless status is "playing" (D-6)', () => {
       session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'gameover' },
     });
     const before = structuredClone(world);
-    stepWorld(world, makeInputState({ right: true, fire: true }), DT, createRng(1));
+    stepWorld(world, makeInputState({ right: true }), DT, createRng(1));
     expect(world).toEqual(before);
   });
 
@@ -32,9 +32,9 @@ describe('stepWorld — determinism (fixed step + seeded rng => reproducible res
   it('produces identical resulting worlds for two independently-created runs given the same seed and the same input sequence', () => {
     const inputs: InputState[] = [
       makeInputState({ right: true }),
-      makeInputState({ right: true, fire: true }),
+      makeInputState({ right: true }),
       makeInputState({ down: true }),
-      makeInputState({ fire: true }),
+      makeInputState(),
     ];
 
     function run(): GameWorld {
@@ -58,10 +58,28 @@ describe('stepWorld — determinism (fixed step + seeded rng => reproducible res
   });
 });
 
+describe('stepWorld — automatic player fire (D-2)', () => {
+  it('creates a projectile on the first playing tick without a fire input', () => {
+    const world = makeWorld({ player: makePlayer({ fireCooldownRemainSec: 0 }) });
+
+    stepWorld(world, makeInputState(), DT, createRng(1));
+
+    expect(world.projectiles).toHaveLength(1);
+    expect(world.player.fireCooldownRemainSec).toBe(BALANCE.player.fireCooldownSec);
+  });
+});
+
 describe('stepWorld — enemy escape has no session side effects (INV-ESCAPE-1)', () => {
   it('applies only direct contact damage when one enemy escapes left and another contacts the player in the same tick', () => {
     const bounds = { width: 800, height: 600 };
-    const player = makePlayer({ x: 400, y: 300, width: 32, height: 32, invulnRemainSec: 0 });
+    const player = makePlayer({
+      x: 400,
+      y: 300,
+      width: 32,
+      height: 32,
+      fireCooldownRemainSec: 1,
+      invulnRemainSec: 0,
+    });
     const escapingEnemy = makeEnemy({ id: 1, x: -1000, y: 0, width: 28, height: 28 });
     const contactingEnemy = makeEnemy({
       id: 2,

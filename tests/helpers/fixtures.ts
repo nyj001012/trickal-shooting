@@ -26,7 +26,6 @@ export function makeInputState(overrides: Partial<InputState> = {}): InputState 
     down: false,
     left: false,
     right: false,
-    fire: false,
     restart: false,
     ...overrides,
   };
