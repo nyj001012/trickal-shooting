@@ -58,8 +58,8 @@ describe('stepWorld — determinism (fixed step + seeded rng => reproducible res
   });
 });
 
-describe('stepWorld — escape damage and contact damage are independent mechanisms (invariants.md INV-DMG-1 scope note)', () => {
-  it('reduces HP by escapeDamage + contactDamage in the very same tick when one enemy escapes left AND a different enemy contacts the player, even though both fall inside the same invulnerability window', () => {
+describe('stepWorld — enemy escape has no session side effects (INV-ESCAPE-1)', () => {
+  it('applies only direct contact damage when one enemy escapes left and another contacts the player in the same tick', () => {
     const bounds = { width: 800, height: 600 };
     const player = makePlayer({ x: 400, y: 300, width: 32, height: 32, invulnRemainSec: 0 });
     const escapingEnemy = makeEnemy({ id: 1, x: -1000, y: 0, width: 28, height: 28 });
@@ -80,6 +80,8 @@ describe('stepWorld — escape damage and contact damage are independent mechani
 
     stepWorld(world, makeInputState(), DT, createRng(1));
 
-    expect(world.session.hp).toBe(3 - BALANCE.enemy.escapeDamage - contactingEnemy.contactDamage);
+    expect(world.session.hp).toBe(3 - contactingEnemy.contactDamage);
+    expect(world.player.invulnRemainSec).toBe(BALANCE.player.invulnSec);
+    expect(world.enemies).toHaveLength(0);
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Player movement (diagonal-normalized, both-axis clamped — INV-MOVE-1/2), enemy
- * left-drift + escape damage, and projectile +x drift + lifetime/offscreen expiry.
+ * left-drift + offscreen removal, and projectile +x drift + lifetime/offscreen expiry.
  * Executed in this fixed sub-order every tick (see invariants.md).
  * @module @/game/systems/movement
  */
@@ -25,13 +25,12 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
   world.player.x = clamp(world.player.x, 0, world.bounds.width - world.player.width);
   world.player.y = clamp(world.player.y, 0, world.bounds.height - world.player.height);
 
-  // 2. Enemies: drift left; escaping off the left edge costs HP independent of invuln.
+  // 2. Enemies: drift left; escaping off the left edge only removes the enemy.
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
     enemy.x -= BALANCE.enemy.speed * dt;
     if (enemy.x + enemy.width < 0) {
       enemy.alive = false;
-      world.session.hp = Math.max(0, world.session.hp - BALANCE.enemy.escapeDamage);
     }
   }
 

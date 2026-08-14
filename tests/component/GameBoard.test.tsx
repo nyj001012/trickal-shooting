@@ -58,7 +58,7 @@ describe('GameBoard — keyboard input (ui-contracts.md §2) does not crash the 
 });
 
 describe('GameBoard — game-over overlay (D-6, ui-contracts.md §3) via the E2E test bridge', () => {
-  it('shows the fixed "GAME OVER" / "Press R to Restart" text once HP is depleted by passive enemy escapes alone (no player input needed)', async () => {
+  it('keeps full HP and playing status after multiple enemies escape off the left edge', async () => {
     window.history.pushState({}, '', '/?e2e=1');
     render(<GameBoard />);
 
@@ -68,11 +68,29 @@ describe('GameBoard — game-over overlay (D-6, ui-contracts.md §3) via the E2E
       expect(window.__TRICKAL_TEST__).toBeDefined();
     });
 
-    // Advance far more fixed ticks than any reasonable balance tuning could need
-    // for several enemies to spawn, cross the 800px-wide screen, and escape left
-    // — this exercises D-5's passive HP loss with zero keyboard input at all.
     act(() => {
-      window.__TRICKAL_TEST__?.stepFrames(20000);
+      window.__TRICKAL_TEST__?.seed(5);
+      window.__TRICKAL_TEST__?.stepFrames(600);
+    });
+
+    expect(screen.getByTestId('hud-hp')).toHaveTextContent(
+      `♥ ${BALANCE.player.maxHp} / ${BALANCE.player.maxHp}`,
+    );
+    expect(screen.queryByTestId('game-over')).not.toBeInTheDocument();
+    expect(window.__TRICKAL_TEST__?.getSnapshot().status).toBe('playing');
+  });
+
+  it('shows the fixed "GAME OVER" / "Press R to Restart" text after direct enemy contacts deplete HP', async () => {
+    window.history.pushState({}, '', '/?e2e=1');
+    render(<GameBoard />);
+
+    await waitFor(() => {
+      expect(window.__TRICKAL_TEST__).toBeDefined();
+    });
+
+    act(() => {
+      window.__TRICKAL_TEST__?.seed(6);
+      window.__TRICKAL_TEST__?.stepFrames(2000);
     });
 
     await waitFor(() => {
@@ -81,5 +99,5 @@ describe('GameBoard — game-over overlay (D-6, ui-contracts.md §3) via the E2E
     expect(screen.getByText('GAME OVER')).toBeInTheDocument();
     expect(screen.getByText(/Press R to Restart/i)).toBeInTheDocument();
     expect(window.__TRICKAL_TEST__?.getSnapshot().status).toBe('gameover');
-  }, 10000);
+  });
 });
