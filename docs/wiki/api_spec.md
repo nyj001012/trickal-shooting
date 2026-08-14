@@ -91,14 +91,17 @@ await page.keyboard.up('Space');
 
 ## UI 관측 계약
 
-| 요소     | `data-testid` | 표시 형식                         |
-| -------- | ------------- | --------------------------------- |
-| HP       | `hud-hp`      | `♥ {hp} / {maxHp}`                |
-| MANA     | `hud-mana`    | `MANA: {mana}%`                   |
-| SCORE    | `hud-score`   | `SCORE: {score}`                  |
-| LEVEL    | `hud-level`   | `LV. {level}`                     |
-| 캔버스   | `game-canvas` | 접근 가능한 `aria-label` 보유     |
-| 게임오버 | `game-over`   | `GAME OVER`, `Press R to Restart` |
+| 요소      | `data-testid` | 표시 형식                         |
+| --------- | ------------- | --------------------------------- |
+| HP        | `hud-hp`      | `♥ {hp} / {maxHp}`                |
+| MANA      | `hud-mana`    | `MANA: {mana}%`                   |
+| SCORE     | `hud-score`   | `SCORE: {score}`                  |
+| LEVEL     | `hud-level`   | `LV. {level}`                     |
+| 게임 보드 | `game-board`  | 뷰포트 내부 최대 4:3 컨테이너     |
+| 캔버스    | `game-canvas` | 접근 가능한 `aria-label` 보유     |
+| 게임오버  | `game-over`   | `GAME OVER`, `Press R to Restart` |
+
+게임 보드는 데스크톱·태블릿·모바일 가로 뷰포트에서 4:3 비율과 중앙 정렬을 유지한다. HUD와 게임오버 오버레이는 보드 내부 레이어이며, 캔버스의 CSS 표시 크기는 보드 크기를 따른다. 논리 좌표와 backing store 계약은 800×600을 유지한다.
 
 ## 키 바인딩
 

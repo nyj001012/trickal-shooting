@@ -64,6 +64,8 @@ npm run e2e
 
 Playwright가 `npm run preview`를 자동 기동하고 Chromium에서 `e2e/**`를 실행한다. 첫 재시도에는 trace, 실패에는 스크린샷을 `test-results/`에 남기며 HTML 보고서는 `playwright-report/`에 생성된다.
 
+반응형 E2E는 데스크톱 1440×900, 태블릿 1024×768, 모바일 가로 844×390을 각각 실행해 게임 보드의 4:3 비율, 중앙 정렬, HUD 가시성과 문서 무스크롤을 검사한다.
+
 보고서 열기:
 
 ```bash

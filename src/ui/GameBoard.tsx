@@ -37,7 +37,7 @@ export function GameBoard(): JSX.Element {
   }, [controller]);
 
   return (
-    <div className="game-board">
+    <div className="game-board" data-testid="game-board">
       <GameCanvas
         ref={canvasRef}
         widthPx={BALANCE.canvas.width}
