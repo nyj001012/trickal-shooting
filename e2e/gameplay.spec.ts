@@ -191,7 +191,7 @@ test.describe('결정적 게임플레이', () => {
     await expect(page.getByTestId('hud-mana')).toHaveText(`MANA: ${afterRelease?.mana}%`);
   });
 
-  test('연속 스킬탄이 Y축으로 퍼지고 Canvas에서 완만한 곡선 궤적을 그린다', async ({ page }) => {
+  test('연속 스킬탄이 Y축으로 퍼지고 Canvas에서 공전 없이 곡선으로 전진한다', async ({ page }) => {
     await page.evaluate(() => {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         window.__TRICKAL_TEST__?.seed(6);
@@ -239,6 +239,9 @@ test.describe('결정적 게임플레이', () => {
           index === 0 || sample.x !== path[index - 1].x || sample.y !== path[index - 1].y,
       );
     expect(leadingPath.length).toBeGreaterThanOrEqual(4);
+
+    const xDeltas = leadingPath.slice(1).map((sample, index) => sample.x - leadingPath[index].x);
+    expect(xDeltas.every((delta) => delta > 0)).toBe(true);
 
     const slopes = leadingPath.slice(1).map((sample, index) => {
       const previous = leadingPath[index];
