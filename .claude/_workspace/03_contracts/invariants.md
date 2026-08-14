@@ -1,7 +1,7 @@
 # Invariants & System Execution Order
 
 - **작성:** tech-leader (Phase 2)
-- **근거:** `.claude/_workspace/01_architecture/design.md` v3.5 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
+- **근거:** `.claude/_workspace/01_architecture/design.md` v3.6 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
 - **위치:** 타입으로 표현 불가능한 것(불변식·실행 순서·경계 조건·수용 기준)만 여기 적는다. 타입 자체는 `src/contracts/**`가 SSOT다.
 - **소비자:** `frontend-developer`(구현 시 이 순서를 그대로 조립), `frontend-qa`(이 표만 보고 red 테스트를 작성), `e2e-tester`(브라우저 레벨 시나리오 근거).
 
@@ -158,7 +158,7 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 | `player.regularFireCooldownSec` | `0.3` | sec (초당 약 3.33발) |
 | `player.skillFireCooldownSec` | `0.15` | sec (초당 약 6.67발) |
 | `player.skillStartMana` | `20` | percent, 스킬 시작 임계값 |
-| `player.manaRegenPerSec` | `5` | percent/sec, 일반 상태 자연 회복 |
+| `player.manaRegenPerSec` | `0.5` | percent/sec, 일반 상태 자연 회복 |
 | `player.skillManaDrainPerSec` | `30` | percent/sec, 스킬 상태 지속 소모 |
 | `player.invulnSec` | `1.0` | sec |
 | `regularProjectile.width` | `8` | |
