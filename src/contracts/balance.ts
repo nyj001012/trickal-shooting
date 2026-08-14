@@ -62,8 +62,6 @@ export interface EnemyBalance {
   readonly manaGain: number;
   /** count; HP damage dealt to the player on direct contact. */
   readonly contactDamage: number;
-  /** count; HP damage dealt to the player when this enemy exits the left edge (D-5). */
-  readonly escapeDamage: number;
 }
 
 export interface SpawnBalance {
