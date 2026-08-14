@@ -8,8 +8,53 @@ const RESPONSIVE_VIEWPORTS = [
 
 const HUD_TEST_IDS = ['hud-hp', 'hud-mana', 'hud-score', 'hud-level'] as const;
 
+interface SkillTraceSample {
+  readonly frame: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 async function waitForTestBridge(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__TRICKAL_TEST__ !== undefined)).toBe(true);
+}
+
+async function installSkillProjectileCanvasTrace(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="game-canvas"]');
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) throw new Error('스킬탄 Canvas 추적기를 설치할 수 없습니다.');
+
+    let frame = 0;
+    canvas.dataset.skillTrace = '';
+    const originalFillRect = ctx.fillRect.bind(ctx);
+    ctx.fillRect = (x: number, y: number, width: number, height: number): void => {
+      const fillStyle = typeof ctx.fillStyle === 'string' ? ctx.fillStyle.toLowerCase() : '';
+      if (fillStyle === '#222222' && x === 0 && y === 0 && width === 800 && height === 600) {
+        frame += 1;
+      } else if (fillStyle === '#00ffff') {
+        canvas.dataset.skillTrace = `${canvas.dataset.skillTrace ?? ''}${frame},${x},${y};`;
+      }
+      originalFillRect(x, y, width, height);
+    };
+  });
+}
+
+async function readSkillProjectileCanvasTrace(page: Page): Promise<SkillTraceSample[]> {
+  const trace = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="game-canvas"]');
+    return canvas?.dataset.skillTrace ?? '';
+  });
+
+  return trace
+    .split(';')
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      const [frame, x, y] = entry.split(',').map(Number);
+      if (![frame, x, y].every(Number.isFinite)) {
+        throw new Error(`유효하지 않은 스킬탄 Canvas 추적값: ${entry}`);
+      }
+      return { frame, x, y };
+    });
 }
 
 test('앱이 초기 HUD와 접근 가능한 게임 캔버스로 부팅된다', async ({ page }) => {
@@ -144,6 +189,67 @@ test.describe('결정적 게임플레이', () => {
     });
     expect(afterRelease?.mana).toBeGreaterThan(duringSkill?.mana ?? 0);
     await expect(page.getByTestId('hud-mana')).toHaveText(`MANA: ${afterRelease?.mana}%`);
+  });
+
+  test('연속 스킬탄이 Y축으로 퍼지고 Canvas에서 공전 없이 곡선으로 전진한다', async ({ page }) => {
+    await page.evaluate(() => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        window.__TRICKAL_TEST__?.seed(6);
+        window.__TRICKAL_TEST__?.stepFrames(100);
+        const snapshot = window.__TRICKAL_TEST__?.getSnapshot();
+        if (snapshot && snapshot.mana >= 20) return;
+      }
+      throw new Error('800틱 안에 Canvas 궤적 검증용 MANA 20을 확보하지 못했습니다.');
+    });
+    await installSkillProjectileCanvasTrace(page);
+
+    await page.keyboard.down('Space');
+    for (let tick = 0; tick < 12; tick += 1) {
+      await page.evaluate(async () => {
+        window.__TRICKAL_TEST__?.stepFrames(1);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+    }
+    await page.keyboard.up('Space');
+
+    const samples = await readSkillProjectileCanvasTrace(page);
+    const samplesByFrame = new Map<number, SkillTraceSample[]>();
+    for (const sample of samples) {
+      const frameSamples = samplesByFrame.get(sample.frame) ?? [];
+      frameSamples.push(sample);
+      samplesByFrame.set(sample.frame, frameSamples);
+    }
+
+    const spreadFrame = [...samplesByFrame.values()].find(
+      (frameSamples) =>
+        frameSamples.length >= 2 &&
+        Math.max(...frameSamples.map((sample) => sample.y)) -
+          Math.min(...frameSamples.map((sample) => sample.y)) >
+          0.1,
+    );
+    expect(spreadFrame).toBeDefined();
+
+    const leadingPath = [...samplesByFrame.entries()]
+      .sort(([frameA], [frameB]) => frameA - frameB)
+      .map(([, frameSamples]) =>
+        frameSamples.reduce((leading, sample) => (sample.x > leading.x ? sample : leading)),
+      )
+      .filter(
+        (sample, index, path) =>
+          index === 0 || sample.x !== path[index - 1].x || sample.y !== path[index - 1].y,
+      );
+    expect(leadingPath.length).toBeGreaterThanOrEqual(4);
+
+    const xDeltas = leadingPath.slice(1).map((sample, index) => sample.x - leadingPath[index].x);
+    expect(xDeltas.every((delta) => delta > 0)).toBe(true);
+
+    const slopes = leadingPath.slice(1).map((sample, index) => {
+      const previous = leadingPath[index];
+      return (sample.y - previous.y) / (sample.x - previous.x);
+    });
+    expect(
+      slopes.some((slope, index) => index > 0 && Math.abs(slope - slopes[index - 1]) > 0.001),
+    ).toBe(true);
   });
 
   test('처치 전 1초간 자연 회복은 HUD 정수 단위를 올리지 않는다', async ({ page }) => {

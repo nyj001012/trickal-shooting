@@ -1,11 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import type { RegularProjectile, SkillProjectile } from '@/contracts';
+import type { GameWorld, InputState, RegularProjectile, SkillProjectile } from '@/contracts';
 import { BALANCE } from '@/game/balance';
-import { fireWeapon } from '@/game/systems/weapon';
+import { fireWeapon as runFireWeapon } from '@/game/systems/weapon';
 import { makeInputState, makePlayer, makeWorld } from '../helpers/fixtures';
 
 const DT = BALANCE.loop.FIXED_STEP_MS / 1000;
+const CENTERED_RNG = (): number => 0.5;
+
+function fireWeapon(world: GameWorld, input: Readonly<InputState>, dt: number): void {
+  runFireWeapon(world, input, dt, CENTERED_RNG);
+}
 
 describe('fireWeapon — regular automatic fire (INV-FIRE-1)', () => {
   it('fires from the player right-edge center on the first tick and regenerates mana', () => {
@@ -106,11 +111,45 @@ describe('fireWeapon — Space skill mode and mutual exclusion', () => {
       y: world.player.y + world.player.height / 2 - BALANCE.skillProjectile.height / 2,
       vx: BALANCE.skillProjectile.speed,
       vy: 0,
+      targetId: null,
     });
     expect(world.session.mana).toBeCloseTo(
       BALANCE.player.skillStartMana - BALANCE.player.skillManaDrainPerSec * DT,
       8,
     );
+  });
+
+  it('uses injected RNG for symmetric Y spread and captures lock-on steering tuning', () => {
+    expect(BALANCE.skillProjectile.initialSpreadSpeedY).toBe(120);
+    expect(BALANCE.skillProjectile.farTurnFactor).toBe(0.06);
+    expect(BALANCE.skillProjectile.nearTurnFactor).toBe(0.3);
+    expect(BALANCE.skillProjectile.nearTurnDistancePx).toBe(150);
+    const world = makeWorld({
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: BALANCE.player.skillStartMana,
+        score: 0,
+        level: 1,
+        status: 'playing',
+      },
+    });
+    let rngCalls = 0;
+
+    runFireWeapon(world, makeInputState({ skill: true }), DT, () => {
+      rngCalls += 1;
+      return 0.75;
+    });
+
+    expect(rngCalls).toBe(1);
+    expect(world.skillProjectiles[0]).toMatchObject({
+      vx: BALANCE.skillProjectile.speed,
+      vy: BALANCE.skillProjectile.initialSpreadSpeedY * 0.5,
+      targetId: null,
+      farTurnFactor: BALANCE.skillProjectile.farTurnFactor,
+      nearTurnFactor: BALANCE.skillProjectile.nearTurnFactor,
+      nearTurnDistancePx: BALANCE.skillProjectile.nearTurnDistancePx,
+    });
   });
 
   it('does not start below 20 mana and continues regular fire instead', () => {
@@ -228,6 +267,10 @@ describe('fireWeapon — independent projectile caps', () => {
         lifetimeRemainSec: BALANCE.skillProjectile.lifetimeSec,
         vx: BALANCE.skillProjectile.speed,
         vy: 0,
+        targetId: null,
+        farTurnFactor: BALANCE.skillProjectile.farTurnFactor,
+        nearTurnFactor: BALANCE.skillProjectile.nearTurnFactor,
+        nearTurnDistancePx: BALANCE.skillProjectile.nearTurnDistancePx,
       }),
     );
     const world = makeWorld({
@@ -236,9 +279,14 @@ describe('fireWeapon — independent projectile caps', () => {
       session: { hp: 3, maxHp: 3, mana: 100, score: 0, level: 1, status: 'playing' },
       nextEntityId: existing.length,
     });
-    fireWeapon(world, makeInputState({ skill: true }), DT);
+    let rngCalls = 0;
+    runFireWeapon(world, makeInputState({ skill: true }), DT, () => {
+      rngCalls += 1;
+      return 0.5;
+    });
     expect(world.skillProjectiles).toHaveLength(BALANCE.limits.maxSkillProjectiles);
     expect(world.regularProjectiles).toHaveLength(0);
     expect(world.nextEntityId).toBe(existing.length);
+    expect(rngCalls).toBe(0);
   });
 });

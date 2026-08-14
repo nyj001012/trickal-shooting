@@ -57,6 +57,29 @@ describe('stepWorld — determinism (fixed step + seeded rng => reproducible res
     expect(worldA.skillProjectiles).toEqual(worldB.skillProjectiles);
     expect(worldA.nextEntityId).toBe(worldB.nextEntityId);
   });
+
+  it('reproduces steering trajectories for the same skill-fire seed and changes them for a different seed', () => {
+    function run(seed: number): GameWorld {
+      const world = makeWorld({
+        enemies: [makeEnemy({ x: 700, y: 100 })],
+        session: { hp: 3, maxHp: 3, mana: 100, score: 0, level: 1, status: 'playing' },
+        spawner: { intervalRemainSec: 999, currentIntervalSec: 999 },
+      });
+      const rng = createRng(seed);
+      for (let tick = 0; tick < 20; tick += 1) {
+        stepWorld(world, makeInputState({ skill: true }), DT, rng);
+      }
+      return world;
+    }
+
+    const worldA = run(42);
+    const worldB = run(42);
+    const worldWithDifferentSeed = run(43);
+
+    expect(worldA.skillProjectiles).toHaveLength(3);
+    expect(worldA.skillProjectiles).toEqual(worldB.skillProjectiles);
+    expect(worldA.skillProjectiles).not.toEqual(worldWithDifferentSeed.skillProjectiles);
+  });
 });
 
 describe('stepWorld — automatic player fire (D-2)', () => {

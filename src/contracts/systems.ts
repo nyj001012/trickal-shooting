@@ -97,16 +97,20 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *      (INV-ESCAPE-1).
  *   3. Regular projectiles: move every alive projectile by `+regularSpeed * dt` on x,
  *      decrement its lifetime, and expire it at the right edge or at lifetime zero.
- *   4. Skill projectiles: select the nearest alive enemy by center-distance squared
- *      (first array entry wins ties), normalize a velocity of `skillSpeed`, then move by
- *      that velocity. With no target they travel in +x. Decrement lifetime and expire
- *      outside any playfield edge or at lifetime zero.
+ *   4. Skill projectiles: retain the alive enemy matching `targetId`; only when that lock
+ *      is absent, reacquire the nearest alive enemy by center-distance squared (first
+ *      array entry wins ties). Interpolate toward the desired `skillSpeed` vector with
+ *      `nearTurnFactor` strictly inside `nearTurnDistancePx`, otherwise
+ *      `farTurnFactor`; normalize back to `skillSpeed`, then move. A zero/non-finite
+ *      interpolated vector falls back to the desired vector. With no target they clear
+ *      `targetId` and retain the current velocity. Decrement lifetime and expire outside
+ *      any playfield edge or at lifetime zero.
  * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].alive,
  *          world.regularProjectiles[].x, world.regularProjectiles[].lifetimeRemainSec,
  *          world.regularProjectiles[].alive, world.skillProjectiles[].x,
  *          world.skillProjectiles[].y, world.skillProjectiles[].vx,
- *          world.skillProjectiles[].vy, world.skillProjectiles[].lifetimeRemainSec,
- *          world.skillProjectiles[].alive
+ *          world.skillProjectiles[].vy, world.skillProjectiles[].targetId,
+ *          world.skillProjectiles[].lifetimeRemainSec, world.skillProjectiles[].alive
  * @module @/game/systems/movement
  */
 export type ApplyMovement = (world: GameWorld, input: Readonly<InputState>, dt: number) => void;
@@ -123,14 +127,21 @@ export type ApplyMovement = (world: GameWorld, input: Readonly<InputState>, dt: 
  * projectile may auto-fire. Every mana update saturates to [0, manaMax]. At either
  * projectile cap, creation is skipped and that cooldown still resets (INV-FIRE-1,
  * INV-MANA-1). If drain reaches zero, the current tick stays skill-only and the mode is
- * disabled for the following tick.
+ * disabled for the following tick. When a skill projectile is actually added, `rng` is
+ * consumed exactly once to derive its initial Y velocity in the configured symmetric
+ * spread range; skipped/capped shots do not consume it.
  * @mutates world.player.regularFireCooldownRemainSec,
  *          world.player.skillFireCooldownRemainSec, world.player.isSkillFiring,
  *          world.session.mana, world.regularProjectiles, world.skillProjectiles,
  *          world.nextEntityId
  * @module @/game/systems/weapon
  */
-export type FireWeapon = (world: GameWorld, input: Readonly<InputState>, dt: number) => void;
+export type FireWeapon = (
+  world: GameWorld,
+  input: Readonly<InputState>,
+  dt: number,
+  rng: Rng,
+) => void;
 
 // ---------------------------------------------------------------------------
 // spawner.ts

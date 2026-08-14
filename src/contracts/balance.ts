@@ -62,6 +62,14 @@ export interface SkillProjectileBalance {
   readonly height: number;
   /** px/sec; magnitude of the homing velocity vector (D-2). */
   readonly speed: number;
+  /** px/sec; maximum absolute initial Y velocity before steering (D-2). */
+  readonly initialSpreadSpeedY: number;
+  /** 0-1 per fixed tick; interpolation factor outside nearTurnDistancePx (D-2). */
+  readonly farTurnFactor: number;
+  /** 0-1 per fixed tick; interpolation factor strictly inside nearTurnDistancePx (D-2). */
+  readonly nearTurnFactor: number;
+  /** px; strict center-distance threshold for the near-target turn boost (D-2). */
+  readonly nearTurnDistancePx: number;
   /** count; HP damage dealt to an enemy on hit. */
   readonly damage: number;
   /** sec; auto-expiry safety net. */

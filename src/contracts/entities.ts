@@ -86,17 +86,25 @@ export interface RegularProjectile extends EntityBase {
   lifetimeRemainSec: number;
 }
 
-/** A skill projectile. It homes toward the nearest alive enemy and never grants mana. */
+/** A skill projectile. It locks onto an alive enemy, steers with inertia, and never grants mana. */
 export interface SkillProjectile extends EntityBase {
   readonly kind: 'skillProjectile';
   /** count; HP damage dealt to the enemy it hits. */
   readonly damage: number;
   /** sec; remaining lifetime before automatic expiry. */
   lifetimeRemainSec: number;
-  /** px/sec; current horizontal velocity, recalculated while a target exists. */
+  /** px/sec; current horizontal velocity, gradually steered while a target exists. */
   vx: number;
-  /** px/sec; current vertical velocity, recalculated while a target exists. */
+  /** px/sec; current vertical velocity, initially spread by injected RNG. */
   vy: number;
+  /** Stable Enemy.id currently locked by this projectile; null until acquisition or with no target. */
+  targetId: number | null;
+  /** 0-1 per fixed tick; interpolation factor outside the near-target radius. */
+  readonly farTurnFactor: number;
+  /** 0-1 per fixed tick; stronger interpolation factor inside the near-target radius. */
+  readonly nearTurnFactor: number;
+  /** px; strict center-distance threshold for applying nearTurnFactor. */
+  readonly nearTurnDistancePx: number;
 }
 
 /**
