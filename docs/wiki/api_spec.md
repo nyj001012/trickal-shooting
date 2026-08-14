@@ -36,7 +36,7 @@
 | `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                      |
 | `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음                                      |
 | `@/game/systems/weapon`      | `fireWeapon(world, input, dt): void`       | 쿨다운, 투사체, 다음 ID                   |
-| `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명, 이탈 피해               |
+| `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명, 이탈 적 제거            |
 | `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID             |
 | `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·투사체 생존, SCORE·MANA, 무적 시간 |
 | `@/game/systems/progression` | `applyProgression(world): void`            | MANA 리셋, LEVEL·스폰 주기, 게임 상태     |
@@ -53,7 +53,8 @@
 
 - 접촉 피해가 실제 HP를 줄였을 때만 무적 시간이 시작된다.
 - 무적 시간 중 추가 접촉은 적을 제거하지만 HP를 다시 줄이지 않는다.
-- 적의 좌측 이탈 피해는 접촉 무적 시간과 독립적으로 적용된다.
+- 적이 좌측 경계를 완전히 벗어나면 해당 적만 제거하고 HP·무적 시간·SCORE·MANA는 변경하지 않는다.
+- HP 감소는 직접 접촉 피해로만 발생한다.
 - HP는 0 아래로 내려가지 않는다.
 
 ## HUD Store API
