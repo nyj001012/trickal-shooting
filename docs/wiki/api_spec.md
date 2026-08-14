@@ -6,16 +6,16 @@
 
 ## 핵심 데이터 모델
 
-| 타입                | 주요 필드                                                                                                       | 의미                                |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `session`, `spawner`, `nextEntityId`   | 한 플레이 세션의 전체 인메모리 상태 |
-| `GameSession`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | HUD와 진행 상태의 SSOT              |
-| `Player`            | 공통 Box 필드, `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`, `invulnRemainSec` | 플레이어 엔티티                     |
-| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`                                                  | 좌측으로 이동하는 적                |
-| `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄            |
-| `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`                                                        | 최근접 생존 적을 유도하는 스킬탄    |
-| `InputState`        | `up`, `down`, `left`, `right`, `skill`, `restart`                                                               | DOM 코드에서 변환된 의미 기반 입력  |
-| `HudSnapshot`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | React가 구독하는 읽기 전용 투영     |
+| 타입                | 주요 필드                                                                                                       | 의미                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `session`, `spawner`, `nextEntityId`   | 한 플레이 세션의 전체 인메모리 상태     |
+| `GameSession`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | HUD와 진행 상태의 SSOT                  |
+| `Player`            | 공통 Box 필드, `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`, `invulnRemainSec` | 플레이어 엔티티                         |
+| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`                                                  | 좌측으로 이동하는 적                    |
+| `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄                |
+| `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`, readonly `turnFactor`                                 | 최근접 생존 적으로 점진 조향하는 스킬탄 |
+| `InputState`        | `up`, `down`, `left`, `right`, `skill`, `restart`                                                               | DOM 코드에서 변환된 의미 기반 입력      |
+| `HudSnapshot`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | React가 구독하는 읽기 전용 투영         |
 
 모든 엔티티는 재사용되지 않는 `id`, 판별자 `kind`, 지연 제거용 `alive`를 갖는다. `Entity`는 `Player | Enemy | RegularProjectile | SkillProjectile` 판별 유니온이다.
 
@@ -36,7 +36,7 @@
 | ---------------------------- | ------------------------------------------ | ----------------------------------------------- |
 | `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                            |
 | `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음, 탄종별 hit 배열 반환                      |
-| `@/game/systems/weapon`      | `fireWeapon(world, input, dt): void`       | 두 쿨다운·스킬 상태, MANA, 탄종별 배열, 다음 ID |
+| `@/game/systems/weapon`      | `fireWeapon(world, input, dt, rng): void`  | 두 쿨다운·스킬 상태, MANA, 탄종별 배열, 다음 ID |
 | `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명·스킬탄 속도, 이탈 적 제거      |
 | `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID                   |
 | `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·탄종별 생존, SCORE·MANA, 무적 시간       |
@@ -63,7 +63,7 @@
 - 새 월드는 두 발사 쿨다운이 0이고 `isSkillFiring`은 `false`다. 첫 `playing` 틱에는 일반탄을 즉시 생성한다.
 - 일반 상태에서는 MANA를 초당 0.5 회복하며 0.3초마다 일반탄을 자동 생성한다. 일반탄은 오른쪽으로 직진하고 적 처치 시 MANA 5를 지급한다.
 - `input.skill`이 `true`이고 MANA가 20 이상이면 스킬 상태를 시작한다. 시작 뒤에는 MANA가 20 미만이어도 Space를 누르고 MANA가 남은 동안 유지한다.
-- 스킬 상태에서는 일반탄 생성과 자연 회복을 중지하고, MANA를 초당 30 소모하며 0.15초마다 스킬탄을 생성한다. 스킬탄은 최근접 생존 적을 추적하고 처치 시 SCORE만 지급한다.
+- 스킬 상태에서는 일반탄 생성과 자연 회복을 중지하고, MANA를 초당 30 소모하며 0.15초마다 스킬탄을 생성한다. 실제 생성 시 주입형 RNG를 한 번 소비해 초기 `vy`를 `[-120, 120)` px/sec로 정하고 `turnFactor 0.08`을 캡처한다. 목표가 있으면 최근접 생존 적 방향으로 현재 속도를 보간하고 720px/sec로 정규화하며, 목표가 없으면 현재 관성을 유지한다. 처치 시 SCORE만 지급한다.
 - MANA는 모든 변경 뒤 0~100 범위로 포화된다. 100에서 회복이나 일반탄 처치 보상이 추가되어도 100을 유지한다.
 - 살아 있는 일반탄 또는 스킬탄이 각 탄종의 최대 60개에 도달하면 해당 생성을 생략하고 해당 쿨다운만 다시 시작한다.
 
