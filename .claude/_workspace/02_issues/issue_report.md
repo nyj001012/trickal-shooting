@@ -156,6 +156,6 @@
 - [x] 적 이탈 시 제거만 수행하고 HP·무적 시간·점수·MANA 유지
 - [x] `escapeDamage` 밸런스 계약과 구현 값 제거
 - [x] 이탈 무피해 및 직접 접촉 피해 단위·컴포넌트 테스트 통과
-- [ ] 이탈 무피해와 접촉 게임오버·재시작 Chromium E2E 통과
+- [x] 이탈 무피해와 접촉 게임오버·재시작 Chromium E2E 통과
 - [x] lint, typecheck, coverage, format, build 통과
 - [ ] 작업 브랜치 Push 및 이슈 #7을 연결한 PR 생성

@@ -115,7 +115,21 @@ test.describe('결정적 게임플레이', () => {
     await expect(page.getByTestId('hud-hp')).toHaveText('♥ 3 / 3');
   });
 
-  test('적 이탈로 게임오버가 되고 R 키로 초기 상태에 복귀한다', async ({ page }) => {
+  test('적들이 왼쪽 경계를 넘어 사라져도 HP가 감소하지 않는다', async ({ page }) => {
+    await page.evaluate(() => {
+      window.__TRICKAL_TEST__?.seed(5);
+      window.__TRICKAL_TEST__?.stepFrames(600);
+    });
+
+    await expect(page.getByTestId('hud-hp')).toHaveText('♥ 3 / 3');
+    await expect(page.getByTestId('game-over')).toHaveCount(0);
+
+    const snapshot = await page.evaluate(() => window.__TRICKAL_TEST__?.getSnapshot());
+    expect(snapshot?.status).toBe('playing');
+  });
+
+  test('직접 접촉 피해로 게임오버가 되고 R 키로 초기 상태에 복귀한다', async ({ page }) => {
+    await page.evaluate(() => window.__TRICKAL_TEST__?.seed(6));
     await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(2_000));
 
     const gameOver = page.getByTestId('game-over');
