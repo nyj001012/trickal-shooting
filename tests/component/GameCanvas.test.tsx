@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import { GameCanvas } from '@/ui/GameCanvas';
+
+afterEach(cleanup);
 
 describe('GameCanvas — canvas element, testid, and accessible label (ui-contracts.md §1, §5)', () => {
   it('renders a <canvas> element with the game-canvas testid and the given aria-label', () => {

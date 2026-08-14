@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { GameBoard } from '@/ui/GameBoard';
 import { BALANCE } from '@/game/balance';
+
+// vite.config.ts sets `test.globals: false`, so @testing-library/react's automatic
+// cleanup (which relies on detecting a global `afterEach`) never registers itself.
+// Without this, each `render()` below would leave its DOM tree (and running game
+// loop) mounted for the next `it()` in this file.
+afterEach(cleanup);
 
 beforeEach(() => {
   // Reset the URL between tests so the ?e2e=1-gated test bridge (§6.9) only
