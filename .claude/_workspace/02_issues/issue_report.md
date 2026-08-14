@@ -158,4 +158,13 @@
 - [x] 이탈 무피해 및 직접 접촉 피해 단위·컴포넌트 테스트 통과
 - [x] 이탈 무피해와 접촉 게임오버·재시작 Chromium E2E 통과
 - [x] lint, typecheck, coverage, format, build 통과
-- [ ] 작업 브랜치 Push 및 이슈 #7을 연결한 PR 생성
+- [x] 작업 브랜치 Push 및 이슈 #7을 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #8 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/8 |
+| 기준/작업 브랜치 | `main` ← `fix/7-enemy-escape-no-damage` |
+| 상태 | Open |
