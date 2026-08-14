@@ -97,18 +97,20 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *      (INV-ESCAPE-1).
  *   3. Regular projectiles: move every alive projectile by `+regularSpeed * dt` on x,
  *      decrement its lifetime, and expire it at the right edge or at lifetime zero.
- *   4. Skill projectiles: select the nearest alive enemy by center-distance squared
- *      (first array entry wins ties), interpolate the current velocity toward the desired
- *      `skillSpeed` vector by the projectile's `turnFactor`, normalize back to
- *      `skillSpeed`, then move. A zero/non-finite interpolated vector falls back to the
- *      desired vector. With no target they retain the current velocity. Decrement
- *      lifetime and expire outside any playfield edge or at lifetime zero.
+ *   4. Skill projectiles: retain the alive enemy matching `targetId`; only when that lock
+ *      is absent, reacquire the nearest alive enemy by center-distance squared (first
+ *      array entry wins ties). Interpolate toward the desired `skillSpeed` vector with
+ *      `nearTurnFactor` strictly inside `nearTurnDistancePx`, otherwise
+ *      `farTurnFactor`; normalize back to `skillSpeed`, then move. A zero/non-finite
+ *      interpolated vector falls back to the desired vector. With no target they clear
+ *      `targetId` and retain the current velocity. Decrement lifetime and expire outside
+ *      any playfield edge or at lifetime zero.
  * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].alive,
  *          world.regularProjectiles[].x, world.regularProjectiles[].lifetimeRemainSec,
  *          world.regularProjectiles[].alive, world.skillProjectiles[].x,
  *          world.skillProjectiles[].y, world.skillProjectiles[].vx,
- *          world.skillProjectiles[].vy, world.skillProjectiles[].lifetimeRemainSec,
- *          world.skillProjectiles[].alive
+ *          world.skillProjectiles[].vy, world.skillProjectiles[].targetId,
+ *          world.skillProjectiles[].lifetimeRemainSec, world.skillProjectiles[].alive
  * @module @/game/systems/movement
  */
 export type ApplyMovement = (world: GameWorld, input: Readonly<InputState>, dt: number) => void;

@@ -50,7 +50,10 @@ function fireSkillProjectile(world: GameWorld, rng: Rng): void {
       lifetimeRemainSec: BALANCE.skillProjectile.lifetimeSec,
       vx: BALANCE.skillProjectile.speed,
       vy: (rng() - 0.5) * 2 * BALANCE.skillProjectile.initialSpreadSpeedY,
-      turnFactor: BALANCE.skillProjectile.turnFactor,
+      targetId: null,
+      farTurnFactor: BALANCE.skillProjectile.farTurnFactor,
+      nearTurnFactor: BALANCE.skillProjectile.nearTurnFactor,
+      nearTurnDistancePx: BALANCE.skillProjectile.nearTurnDistancePx,
     });
     world.nextEntityId += 1;
   }

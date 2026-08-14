@@ -33,6 +33,20 @@ function nearestAliveEnemy(
   return nearest;
 }
 
+function resolveLockedTarget(
+  projectile: SkillProjectile,
+  enemies: readonly Enemy[],
+): Enemy | undefined {
+  if (projectile.targetId !== null) {
+    const locked = enemies.find((enemy) => enemy.alive && enemy.id === projectile.targetId);
+    if (locked !== undefined) return locked;
+  }
+
+  const target = nearestAliveEnemy(projectile, enemies);
+  projectile.targetId = target?.id ?? null;
+  return target;
+}
+
 function isFullyOutside(
   projectile: Readonly<SkillProjectile>,
   bounds: Readonly<{ width: number; height: number }>,
@@ -75,7 +89,7 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
 
   for (const projectile of world.skillProjectiles) {
     if (!projectile.alive) continue;
-    const target = nearestAliveEnemy(projectile, world.enemies);
+    const target = resolveLockedTarget(projectile, world.enemies);
     if (target !== undefined) {
       const targetDx = target.x + target.width / 2 - (projectile.x + projectile.width / 2);
       const targetDy = target.y + target.height / 2 - (projectile.y + projectile.height / 2);
@@ -87,8 +101,12 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
         desiredVy = (targetDy / targetDistance) * BALANCE.skillProjectile.speed;
       }
 
-      const steeredVx = projectile.vx + (desiredVx - projectile.vx) * projectile.turnFactor;
-      const steeredVy = projectile.vy + (desiredVy - projectile.vy) * projectile.turnFactor;
+      const turnFactor =
+        targetDistance < projectile.nearTurnDistancePx
+          ? projectile.nearTurnFactor
+          : projectile.farTurnFactor;
+      const steeredVx = projectile.vx + (desiredVx - projectile.vx) * turnFactor;
+      const steeredVy = projectile.vy + (desiredVy - projectile.vy) * turnFactor;
       const steeredSpeed = Math.hypot(steeredVx, steeredVy);
       if (Number.isFinite(steeredSpeed) && steeredSpeed > Number.EPSILON) {
         projectile.vx = (steeredVx / steeredSpeed) * BALANCE.skillProjectile.speed;

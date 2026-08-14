@@ -111,6 +111,7 @@ describe('fireWeapon — Space skill mode and mutual exclusion', () => {
       y: world.player.y + world.player.height / 2 - BALANCE.skillProjectile.height / 2,
       vx: BALANCE.skillProjectile.speed,
       vy: 0,
+      targetId: null,
     });
     expect(world.session.mana).toBeCloseTo(
       BALANCE.player.skillStartMana - BALANCE.player.skillManaDrainPerSec * DT,
@@ -118,9 +119,11 @@ describe('fireWeapon — Space skill mode and mutual exclusion', () => {
     );
   });
 
-  it('uses injected RNG for symmetric Y spread and captures the steering factor', () => {
+  it('uses injected RNG for symmetric Y spread and captures lock-on steering tuning', () => {
     expect(BALANCE.skillProjectile.initialSpreadSpeedY).toBe(120);
-    expect(BALANCE.skillProjectile.turnFactor).toBe(0.08);
+    expect(BALANCE.skillProjectile.farTurnFactor).toBe(0.06);
+    expect(BALANCE.skillProjectile.nearTurnFactor).toBe(0.3);
+    expect(BALANCE.skillProjectile.nearTurnDistancePx).toBe(150);
     const world = makeWorld({
       session: {
         hp: 3,
@@ -142,7 +145,10 @@ describe('fireWeapon — Space skill mode and mutual exclusion', () => {
     expect(world.skillProjectiles[0]).toMatchObject({
       vx: BALANCE.skillProjectile.speed,
       vy: BALANCE.skillProjectile.initialSpreadSpeedY * 0.5,
-      turnFactor: BALANCE.skillProjectile.turnFactor,
+      targetId: null,
+      farTurnFactor: BALANCE.skillProjectile.farTurnFactor,
+      nearTurnFactor: BALANCE.skillProjectile.nearTurnFactor,
+      nearTurnDistancePx: BALANCE.skillProjectile.nearTurnDistancePx,
     });
   });
 
@@ -261,7 +267,10 @@ describe('fireWeapon — independent projectile caps', () => {
         lifetimeRemainSec: BALANCE.skillProjectile.lifetimeSec,
         vx: BALANCE.skillProjectile.speed,
         vy: 0,
-        turnFactor: BALANCE.skillProjectile.turnFactor,
+        targetId: null,
+        farTurnFactor: BALANCE.skillProjectile.farTurnFactor,
+        nearTurnFactor: BALANCE.skillProjectile.nearTurnFactor,
+        nearTurnDistancePx: BALANCE.skillProjectile.nearTurnDistancePx,
       }),
     );
     const world = makeWorld({

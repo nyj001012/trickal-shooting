@@ -64,7 +64,11 @@ export const BALANCE = {
     /** px/sec */
     initialSpreadSpeedY: 120,
     /** 0-1 per fixed tick */
-    turnFactor: 0.08,
+    farTurnFactor: 0.06,
+    /** 0-1 per fixed tick */
+    nearTurnFactor: 0.3,
+    /** px */
+    nearTurnDistancePx: 150,
     /** count */
     damage: 1,
     /** sec */
