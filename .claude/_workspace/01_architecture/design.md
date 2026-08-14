@@ -1,6 +1,6 @@
 # 트릭컬 슈팅게임 — 시스템 아키텍처 설계서 (Greyboxing Phase)
 
-- **문서 버전:** 3.7 (스킬탄을 RNG 발사 확산 + 관성 기반 점진 조향으로 변경)
+- **문서 버전:** 3.8 (스킬탄 타깃 락온 + 근접 회전 부스트로 공전 방지)
 - **작성:** system-architect (Phase 1)
 - **상태:** `[APPROVED]` — 기술 스택 / 표준 명령어 / 소유권 경로 모두 확정됨
 - **저장소:** `D:\dev\trickal-shooting` (신규, `README.md`만 존재)
@@ -464,9 +464,10 @@ player.y = clamp(player.y, 0, bounds.height - player.height)
 - `input.skill`이 true이고 MANA가 `20` 이상이면 스킬 모드를 시작한다. 시작 후에는 MANA가 20 미만이어도 Space를 누르고 MANA가 남아 있는 동안 유지한다.
 - 스킬 모드에서는 일반탄을 생성하지 않고 `0.15초`마다 스킬탄만 생성하며 MANA를 초당 `30` 소모한다. Space를 놓거나 MANA가 `0`이 되면 모드를 종료하고 일반탄 자동 발사를 재개한다.
 - 각 탄종은 플레이어 오른쪽 가장자리의 세로 중앙에서 생성한다. 일반탄은 항상 +x로 직진한다.
-- 스킬탄은 생성할 때 `vx = skillProjectile.speed`, `vy = (rng() - 0.5) * 2 * skillProjectile.initialSpreadSpeedY`로 초기 관성을 받고, 해당 시점의 `skillProjectile.turnFactor`를 엔티티에 캡처한다. `Math.random()`은 사용하지 않는다.
-- 스킬탄은 매 틱 중심 거리 제곱이 가장 작은 살아 있는 적을 선택한다. 동률이면 `enemies` 배열에서 앞선 적을 선택한다. 목표가 있으면 목표 중심을 향하는 크기 `skillProjectile.speed`의 이상 속도(`desiredVx`, `desiredVy`)를 구한 뒤 `velocity += (desiredVelocity - velocity) * turnFactor`로 현재 속도를 한 번만 보간한다. 보간 결과는 다시 `skillProjectile.speed`로 정규화한 뒤 위치에 적용한다. 보간 벡터의 크기가 0 또는 비유한 값이면 이상 속도로 복구해 `NaN` 전파를 막는다.
-- 살아 있는 목표가 없으면 방향을 +x로 재설정하지 않고 현재 `vx`/`vy` 관성을 그대로 적용한다. 이후 목표가 생기면 그 시점부터 같은 점진 조향을 시작한다.
+- 스킬탄은 생성할 때 `targetId = null`, `vx = skillProjectile.speed`, `vy = (rng() - 0.5) * 2 * skillProjectile.initialSpreadSpeedY`로 초기 관성을 받고, 해당 시점의 `farTurnFactor`, `nearTurnFactor`, `nearTurnDistancePx`를 엔티티에 캡처한다. `Math.random()`은 사용하지 않는다.
+- 스킬탄은 `targetId`와 일치하는 살아 있는 적이 있으면 거리 순위와 무관하게 그 대상을 계속 추적한다. 락온 대상이 없거나 죽어 사라졌을 때만 중심 거리 제곱이 가장 작은 살아 있는 적을 재획득하고 그 ID를 저장한다. 동률이면 `enemies` 배열에서 앞선 적을 선택한다.
+- 목표가 있으면 목표 중심을 향하는 크기 `skillProjectile.speed`의 이상 속도(`desiredVx`, `desiredVy`)를 구한다. 두 중심 사이 실제 거리가 `nearTurnDistancePx`보다 작으면 `nearTurnFactor`, 그 외에는 `farTurnFactor`를 선택해 `velocity += (desiredVelocity - velocity) * turnFactor`로 현재 속도를 한 번만 보간한다. 보간 결과는 다시 `skillProjectile.speed`로 정규화한 뒤 위치에 적용한다. 보간 벡터의 크기가 0 또는 비유한 값이면 이상 속도로 복구해 `NaN` 전파를 막는다.
+- 살아 있는 목표가 없으면 `targetId = null`로 정리하고, 방향을 +x로 재설정하지 않은 채 현재 `vx`/`vy` 관성을 그대로 적용한다. 이후 목표가 생기면 그 시점부터 새 타깃을 락온하고 같은 점진 조향을 시작한다.
 - 살아 있는 탄종별 개수가 각 `BalanceConfig.limits` 상한에 도달하면 해당 생성을 조용히 생략하고 해당 쿨다운을 리셋한다. 발사 요청은 버퍼링·큐잉하지 않는다.
 - **불변식 INV-FIRE-1:** 한 틱에서는 활성 모드의 탄종만 최대 1개 생성한다. `isSkillFiring === true`인 모든 틱에서 새 일반탄 수는 0이다.
 - **불변식 INV-MANA-1:** 모든 시스템 실행 후 MANA는 `[0, 100]`이며, 100에서 회복이나 일반탄 처치 보상이 추가되어도 100을 유지한다. 일반탄 처치만 `enemy.manaGain`을 지급하고 스킬탄 처치는 지급하지 않는다.
@@ -502,7 +503,7 @@ export interface EntityBase extends Box { id: number; alive: boolean }
 export interface Player            extends EntityBase { kind: 'player';            /* ... */ }
 export interface Enemy             extends EntityBase { kind: 'enemy';             /* ... */ }
 export interface RegularProjectile extends EntityBase { kind: 'regularProjectile'; /* ... */ }
-export interface SkillProjectile   extends EntityBase { kind: 'skillProjectile';   /* vx, vy, turnFactor, ... */ }
+export interface SkillProjectile   extends EntityBase { kind: 'skillProjectile';   /* targetId, vx, vy, farTurnFactor, nearTurnFactor, nearTurnDistancePx, ... */ }
 
 export type Entity = Player | Enemy | RegularProjectile | SkillProjectile;
 export type EntityKind = Entity['kind'];            // 파생 — 손으로 다시 적지 않는다
@@ -593,8 +594,9 @@ default: {
 | `regularProjectile` | `width`, `height` | px | 일반탄 AABB |
 | | `speed`, `damage`, `lifetimeSec` | px/sec, 점, sec | +x 직진 일반탄 |
 | `skillProjectile` | `width`, `height` | px | 스킬탄 AABB |
-| | `speed`, `initialSpreadSpeedY`, `damage`, `lifetimeSec` | px/sec, px/sec, 점, sec | 최근접 적 관성 유도 스킬탄 |
-| | `turnFactor` | 0~1 무차원/고정 틱 | 현재 속도를 목표 속도로 당기는 보간 계수 |
+| | `speed`, `initialSpreadSpeedY`, `damage`, `lifetimeSec` | px/sec, px/sec, 점, sec | 락온 관성 유도 스킬탄 |
+| | `farTurnFactor`, `nearTurnFactor` | 0~1 무차원/고정 틱 | 원거리 점진 조향·근거리 오버슈팅 방지 보간 계수 |
+| | `nearTurnDistancePx` | px | 근접 회전 부스트를 적용하는 중심 거리의 엄격한 상한 |
 | `enemy` | `width`, `height` | px | |
 | | `speed` | px/sec | D-5 좌측 직진(x 감소) |
 | | `hp` | 점 | |
@@ -744,7 +746,7 @@ default: {
 | # | 항목 | 확정 사양 | 상세 규약 |
 | --- | --- | --- | --- |
 | **D-1** | 플레이어 이동 | **8방향 자유 이동.** 캔버스 전역(800x600)을 이동하며 **x·y 모두 화면 경계로 클램프**된다. 대각선 동시 입력 시 **속도 정규화** 필수. | §6.2.1 |
-| **D-2** | 발사 방식 | **일반탄과 스킬탄 완전 분리.** 일반탄은 0.3초 자동 발사, Space 스킬 중에는 중지한다. 스킬탄은 0.15초마다 RNG 기반 Y축 초기 확산을 받고 최근접 적을 향해 관성을 유지하며 점진 조향한다. 스킬 종료 후 일반탄을 재개한다. | §6.2.1 |
+| **D-2** | 발사 방식 | **일반탄과 스킬탄 완전 분리.** 일반탄은 0.3초 자동 발사, Space 스킬 중에는 중지한다. 스킬탄은 0.15초마다 RNG 기반 Y축 초기 확산을 받고 최초 목표를 락온한다. 목표가 사라질 때만 최근접 적을 재획득하며, 중심 거리 150px 미만에서 회전력을 높여 공전을 방지한다. 스킬 종료 후 일반탄을 재개한다. | §6.2.1 |
 | **D-3** | MANA | **0~100 포화 자원.** 일반 상태에서 초당 0.5 회복하고 일반탄 처치로 5를 얻으며, 스킬 중 초당 30 소모한다. 20 이상에서 스킬을 시작하고 스킬탄 처치는 MANA를 지급하지 않는다. | §6.2.1, §6.9 |
 | **D-4** | 레벨업 | **점수 임계값 기반.** 레벨 상승 시 **스폰 주기가 단축**된다(이번 단계 난이도 상승의 유일한 축). | §6.2.1 |
 | **D-5** | 적 행동 | **좌측 방향 직진**(x 감소). 화면 **좌측 경계를 이탈하면 HP 변화 없이 해당 적만 제거**. 플레이어 HP는 직접 접촉 시에만 감소한다. | §6.2.1 |
