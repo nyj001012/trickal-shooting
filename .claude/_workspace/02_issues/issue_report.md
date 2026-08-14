@@ -75,4 +75,13 @@
 - [x] `$run-pipeline` 명시 호출 및 암시적 호출 메타데이터 제공
 - [x] YAML 구조, 이름/설명 규칙, 저장소 포맷 검증 통과
 - [x] 기존 `.claude/**` 워크플로와 개인 설정 보존
-- [ ] 커밋, 원격 푸시, 이슈 #3을 연결한 PR 생성
+- [x] 커밋, 원격 푸시, 이슈 #3을 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #4 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/4 |
+| 기준/작업 브랜치 | `main` ← `chore/3-codex-run-pipeline-skill` |
+| 상태 | Open |
