@@ -33,7 +33,41 @@
 
 ---
 
-## 2. 필수 불변식
+## 2. AABB Overlap 경계 판정 (`aabbOverlap`, `AabbOverlap` 타입 — 모서리 접촉 = 비겹침)
+
+> 계약 공백 보완(오케스트레이터 요청, `frontend-qa`가 클린룸 작업 중 발견). `src/contracts/systems.ts`의 `AabbOverlap` 타입 시그니처 자체는 변경하지 않았고, JSDoc으로 동일한 판정 규칙을 명시했다. 이 섹션이 산문 SSOT다.
+
+### 정확한 판정식 — **엄격 부등식 채택**
+```
+overlap(a, b) =
+     a.x            <  b.x + b.width
+  && a.x + a.width   >  b.x
+  && a.y            <  b.y + b.height
+  && a.y + a.height  >  b.y
+```
+네 비교 전부 **`<` / `>`만 사용하며, `<=` / `>=`는 절대 쓰지 않는다.** 즉 두 박스가 한 축에서라도 "딱 맞닿기만"(면적 0의 접촉) 하는 경우 — 예를 들어 `a.x + a.width === b.x`(가로로 모서리가 맞닿음) 또는 `a.y + a.height === b.y`(세로로 모서리가 맞닿음), 나아가 네 모서리 중 한 점만 공유하는 경우(코너 접촉) — 전부 `false`(비겹침)를 반환한다. 겹침으로 인정되려면 x축·y축 **양쪽 모두에서 실제 폭을 가진 교집합**이 있어야 한다.
+
+### 모서리 접촉이 비겹침이어야 하는 이유 — `INV-SPAWN-1`과의 연결
+`INV-SPAWN-1`(§3 참조)은 "스폰 직후 프레임에서 적의 AABB는 `world.bounds` 우측 경계 바깥에 있으며 **플레이어와 겹치지 않는다**"를 요구한다. 스폰 좌표는 `enemy.x = world.bounds.width`로 고정되어 있으므로(§3 INV-SPAWN-1 본문), 만약 겹침 판정이 `>=`/`<=`(비엄격 부등식)를 하나라도 쓴다면 다음과 같은 경계 사례가 생길 수 있다:
+- 플레이어가 우측 끝까지 붙어 있어 `player.x + player.width === enemy.x`(`=== world.bounds.width`)인 프레임 — 이때 x축 조건이 `a.x + a.width >= b.x`처럼 비엄격이면 이 사례가 "겹침"으로 오판된다.
+- 8방향 이동 확정(D-1) 이후 플레이어가 화면 우측 경계(`world.bounds.width - player.width`)까지 자유롭게 붙을 수 있으므로, 이 경계 사례는 이론적 가능성이 아니라 **정상 플레이 중 실제로 발생 가능한 프레임**이다.
+
+따라서 `INV-SPAWN-1`이 예외 없이 성립하려면 `aabbOverlap`이 **엄격 부등식**이어야 한다 — `frontend-qa`가 클린룸 상태에서 추론한 해석이 정확하며, 이 문서가 그 해석을 공식 계약으로 고정한다.
+
+### 적용 범위 — 투사체 명중·접촉 피해에도 동일하게 적용
+이 판정 규칙은 `detectCollisions`(및 그것이 내부적으로 호출하는 `aabbOverlap`)의 **모든 호출 지점에 예외 없이 동일하게** 적용된다. 구체적으로:
+- **투사체-적 명중(`ProjectileHit`):** 투사체의 선단과 적의 AABB가 한 프레임에 정확히 모서리만 맞닿은 경우(면적 0의 접촉), 그 프레임에는 명중으로 취급하지 않는다 — `applyCombat`은 데미지를 주지 않고, 두 엔티티 모두 다음 틱에도 `alive: true`로 남아 계속 이동한다(투사체가 빠르게 스쳐 지나가는 그레이박스 물리 특성상 실제로 완전히 놓치는 것이 아니라, 대개 다음 틱에는 두 AABB가 실제 폭을 가진 교집합을 이루며 정상적으로 명중 판정된다).
+- **플레이어-적 접촉(`PlayerContact`):** 마찬가지로 모서리만 스치듯 맞닿은 프레임에는 접촉 피해가 발생하지 않는다. 즉 **"스치듯 맞닿은 프레임에는 피해가 발생하지 않는다"**는 것은 이번 단계의 의도된 게임플레이 귀결이며, 버그가 아니다.
+- 결론적으로 `combat.ts`는 이 규칙을 스스로 재구현하거나 재확인하지 않는다 — `detectCollisions`가 이미 엄격 부등식으로 걸러낸 쌍만 넘겨주므로, `applyCombat`은 넘어온 모든 쌍을 무조건 "겹침"으로 신뢰하고 처리한다.
+
+### 테스트 관점 (`frontend-qa` 참고)
+- `aabbOverlap({x:0,y:0,width:10,height:10}, {x:10,y:0,width:10,height:10})` → **`false`**(가로 모서리 정확히 접촉).
+- `aabbOverlap({x:0,y:0,width:10,height:10}, {x:9,y:0,width:10,height:10})` → **`true`**(1px 폭의 실제 교집합).
+- `aabbOverlap({x:0,y:0,width:10,height:10}, {x:10,y:10,width:10,height:10})` → **`false`**(코너 한 점만 공유).
+
+---
+
+## 3. 필수 불변식
 
 ### INV-MOVE-1 — 대각선 이동 속도 정규화 (D-1)
 어떤 입력 조합에서도, 플레이어의 1틱 이동 거리(유클리드 거리)는 `BalanceConfig.player.speed * dt`를 **초과하지 않는다**.
@@ -66,6 +100,7 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 적이 스폰되는 **바로 그 프레임**에서, 해당 적의 AABB는 `world.bounds`의 우측 경계 완전히 바깥에 있으며(`enemy.x >= world.bounds.width`) 플레이어의 AABB와 겹치지 않는다.
 - 스폰 좌표는 항상 `x = world.bounds.width`(적의 `width`만큼 화면 밖에서 시작하는 것이 아니라 우측 경계선에서 시작 — 곧바로 좌측으로 진행하며 자연히 화면 안으로 들어온다), `y`는 `rng()`로 `[BalanceConfig.spawn.marginY, world.bounds.height - enemy.height - BalanceConfig.spawn.marginY]` 범위에서 결정한다.
 - 이 불변식 덕분에 스폰과 충돌 판정(`detectCollisions`) 사이에 순서 의존성이 생기지 않는다: 스폰 직후 같은 틱에 충돌 판정이 실행되어도 방금 생성된 적은 절대 히트로 잡히지 않는다.
+- **이 불변식이 성립하려면 `aabbOverlap`이 §2의 엄격 부등식이어야 한다.** 플레이어가 우측 경계에 완전히 붙어 있는 프레임(`player.x + player.width === world.bounds.width === enemy.x`)에서도 겹침이 아니어야 하기 때문이다. 자세한 근거는 §2를 참조.
 
 ### INV-DMG-1 — 무적 시간 중 접촉 피해 상한 (8방향 확정의 파생 규칙)
 임의의 `BalanceConfig.player.invulnSec` 길이 구간 안에서, **접촉 피해(contact damage)로 인한** 플레이어 HP 감소는 최대 1회(=`contactDamage` 1건)이다.
@@ -83,7 +118,7 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 
 ---
 
-## 3. `BalanceConfig` 권장 수치 (그레이박스 초기값)
+## 4. `BalanceConfig` 권장 수치 (그레이박스 초기값)
 
 > 타입은 `src/contracts/balance.ts`(SSOT). 아래 수치는 `frontend-developer`가 `src/game/balance.ts`에 `as const satisfies BalanceConfig`로 채워 넣을 **권장 초기값**이다. `loop.*` 4개 키는 §6.1/§6.2가 수치까지 확정했으므로 권장이 아니라 **고정값**이다. 나머지는 그레이박스 튜닝 편의를 위한 권장값이며, 플레이 테스트 후 `frontend-developer`가 조정할 수 있다(단, 키 이름·단위·그룹 구조는 변경 불가).
 
@@ -128,10 +163,10 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 
 ---
 
-## 4. 계약 검증 기록
+## 5. 계약 검증 기록
 
 - **명령(§4.2 Phase 2):**
   `npx --yes -p typescript@5.7 tsc --noEmit --strict --target ES2022 --lib ES2022 --moduleResolution bundler --module ESNext src/contracts/*.ts`
   (참고: 순수 `npx --yes typescript@5.7 tsc ...` 형태는 이 npm 버전에서 "could not determine executable to run" 오류를 낸다. 패키지명과 bin명이 달라 `-p` 플래그가 필요하다 — `npx --yes -p typescript@5.7 tsc ...`가 올바른 호출이다.)
-- **결과:** 종료 코드 `0`, 출력 없음 (에러 0건).
+- **결과:** 종료 코드 `0`, 출력 없음 (에러 0건). AABB 경계 판정 JSDoc 보완 후 재검증 완료(§2 신설 반영, 타입 시그니처 변경 없음).
 - **추가 자체 검증(§2.2.2 전체 옵션):** `verbatimModuleSyntax`, `isolatedModules`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `noImplicitOverride`, `forceConsistentCasingInFileNames`, `skipLibCheck`, `noUncheckedIndexedAccess: false`를 모두 켠 임시 tsconfig로도 `tsc --noEmit` 통과 확인(종료 코드 `0`).

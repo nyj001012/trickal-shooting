@@ -42,6 +42,25 @@ export interface CollisionResult {
 /**
  * Pure axis-aligned bounding box overlap test. Carries no entity-kind knowledge, so it
  * is testable with two `Box` literals and reused for every entity pair.
+ *
+ * **Boundary rule (strict inequality — edge/corner touch is NOT an overlap):**
+ * ```
+ * overlap(a, b) =
+ *      a.x        <  b.x + b.width
+ *   && a.x + a.width  >  b.x
+ *   && a.y        <  b.y + b.height
+ *   && a.y + a.height >  b.y
+ * ```
+ * All four comparisons use `<`/`>` (never `<=`/`>=`). Two boxes that merely touch along
+ * an edge or at a corner (e.g. `a.x + a.width === b.x`) are **not** overlapping — this
+ * function returns `false` for that case. This is required for INV-SPAWN-1 to hold
+ * exactly as stated (an enemy spawned at `x === world.bounds.width`, i.e. its left edge
+ * exactly on the right boundary, must not register as overlapping the player even if
+ * their y-ranges touch) and applies uniformly everywhere this function is used:
+ * `detectCollisions` uses the same strict rule for both projectile-enemy hits and
+ * player-enemy contacts, so a projectile or the player merely grazing an edge on a given
+ * tick (zero-area or zero-width intersection) deals no damage that tick. See
+ * invariants.md — "AABB Overlap Boundary Rule".
  * @module @/game/systems/collision
  */
 export type AabbOverlap = (a: Readonly<Box>, b: Readonly<Box>) => boolean;
@@ -50,7 +69,8 @@ export type AabbOverlap = (a: Readonly<Box>, b: Readonly<Box>) => boolean;
  * Scans `world.projectiles` x `world.enemies` and `world.player` x `world.enemies` for
  * AABB overlaps, considering only entities with `alive === true`. Performs no mutation
  * and no removal — it only reports pairs for `combat.ts` to act on (§6.4: "판정 함수는
- * 부수효과가 없어야 한다").
+ * 부수효과가 없어야 한다"). Uses `AabbOverlap`'s strict-inequality boundary rule (edge
+ * touch = no overlap) for every pair it tests.
  * @module @/game/systems/collision
  */
 export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
@@ -126,6 +146,9 @@ export type SpawnTick = (world: GameWorld, dt: number, rng: Rng) => void;
  * `alive = false`, and reset `world.player.invulnRemainSec` to
  * `BalanceConfig.player.invulnSec` (INV-DMG-1). Contacts arriving while already
  * invulnerable still remove the contacting enemy but cause no further HP loss.
+ * Both hit lists come from `DetectCollisions`, so a merely-touching (edge/corner,
+ * zero-area) pair never appears here in the first place — this function never needs to
+ * re-check the boundary rule itself.
  * @mutates world.enemies[].hp, world.enemies[].alive, world.projectiles[].alive,
  *          world.session.score, world.session.mana, world.session.hp,
  *          world.player.invulnRemainSec
