@@ -1,7 +1,7 @@
 # Invariants & System Execution Order
 
 - **작성:** tech-leader (Phase 2)
-- **근거:** `.claude/_workspace/01_architecture/design.md` v3.4 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
+- **근거:** `.claude/_workspace/01_architecture/design.md` v3.5 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
 - **위치:** 타입으로 표현 불가능한 것(불변식·실행 순서·경계 조건·수용 기준)만 여기 적는다. 타입 자체는 `src/contracts/**`가 SSOT다.
 - **소비자:** `frontend-developer`(구현 시 이 순서를 그대로 조립), `frontend-qa`(이 표만 보고 red 테스트를 작성), `e2e-tester`(브라우저 레벨 시나리오 근거).
 
@@ -12,7 +12,7 @@
 `src/game/stepWorld.ts`의 `stepWorld: StepWorld`는 `world.session.status !== 'playing'`이면 **아무 것도 하지 않고 즉시 반환**한다. `'playing'`일 때만 아래 순서를 **정확히** 이 순서로 1회씩 실행한다. 순서를 바꾸려면 계약 개정을 거친다(§6.4).
 
 ```
-1. fireWeapon(world, dt)               // game/systems/weapon.ts
+1. fireWeapon(world, input, dt)        // game/systems/weapon.ts
 2. applyMovement(world, input, dt)     // game/systems/movement.ts
 3. spawnTick(world, dt, rng)           // game/systems/spawner.ts
 4. const collisions = detectCollisions(world)   // game/systems/collision.ts (읽기 전용)
@@ -20,15 +20,16 @@
 6. applyProgression(world)             // game/systems/progression.ts
 7. prune dead entities:                // stepWorld.ts 내부(비공개 헬퍼, 별도 계약 타입 없음)
    world.enemies = world.enemies.filter(e => e.alive)
-   world.projectiles = world.projectiles.filter(p => p.alive)
+   world.regularProjectiles = world.regularProjectiles.filter(p => p.alive)
+   world.skillProjectiles = world.skillProjectiles.filter(p => p.alive)
 ```
 
 **근거 및 주의사항**
 - 1(발사)이 2(이동)보다 먼저인 이유: 발사는 "이번 틱 이동 전" 플레이어 위치에서 투사체를 생성해도 무방하지만(허용 오차 범위, 그레이박스 단계), 이동 시스템이 투사체의 +x 이동까지 담당하므로 **발사가 먼저 실행되어야 방금 생성된 투사체도 같은 틱에 1회 전진**한다.
 - 4(충돌 판정)는 **2와 3 다음**에 실행한다 — 이동·스폰이 끝난 "이번 틱의 최종 위치" 기준으로 겹침을 판정해야 겹침 판정이 프레임 지연 없이 정확하다.
-- 6(진행도)이 5(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·마나 리셋·게임오버 전이를 판정해야 같은 틱 안에서 즉시 반영된다.
+- 6(진행도)이 5(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·MANA 포화·게임오버 전이를 같은 틱 안에 반영한다.
 - **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~6 사이에서는 `alive` 플래그만 뒤집는다.
-- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태이며 이동 시스템만 방향 입력을 읽는다. 무기 시스템은 입력을 받지 않고 자동 발사한다.
+- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태다. 이동 시스템은 방향 입력을, 무기 시스템은 `skill` 입력을 읽는다. 일반탄은 스킬 비활성 상태에서 자동 발사한다.
 - `dt`는 항상 고정 스텝(`BalanceConfig.loop.FIXED_STEP_MS / 1000`)이며, 가변 프레임 델타를 그대로 넘기지 않는다(§6.2 누산기 패턴은 `hooks/useGameLoop.ts` 책임).
 
 ---
@@ -56,7 +57,7 @@ overlap(a, b) =
 
 ### 적용 범위 — 투사체 명중·접촉 피해에도 동일하게 적용
 이 판정 규칙은 `detectCollisions`(및 그것이 내부적으로 호출하는 `aabbOverlap`)의 **모든 호출 지점에 예외 없이 동일하게** 적용된다. 구체적으로:
-- **투사체-적 명중(`ProjectileHit`):** 투사체의 선단과 적의 AABB가 한 프레임에 정확히 모서리만 맞닿은 경우(면적 0의 접촉), 그 프레임에는 명중으로 취급하지 않는다 — `applyCombat`은 데미지를 주지 않고, 두 엔티티 모두 다음 틱에도 `alive: true`로 남아 계속 이동한다(투사체가 빠르게 스쳐 지나가는 그레이박스 물리 특성상 실제로 완전히 놓치는 것이 아니라, 대개 다음 틱에는 두 AABB가 실제 폭을 가진 교집합을 이루며 정상적으로 명중 판정된다).
+- **투사체-적 명중(`RegularProjectileHit`/`SkillProjectileHit`):** 어느 탄종이든 선단과 적 AABB가 한 프레임에 정확히 모서리만 맞닿은 경우에는 명중으로 취급하지 않는다. `detectCollisions`는 탄종별 결과 배열을 독립적으로 만들며 `applyCombat`은 경계 판정을 다시 하지 않는다.
 - **플레이어-적 접촉(`PlayerContact`):** 마찬가지로 모서리만 스치듯 맞닿은 프레임에는 접촉 피해가 발생하지 않는다. 즉 **"스치듯 맞닿은 프레임에는 피해가 발생하지 않는다"**는 것은 이번 단계의 의도된 게임플레이 귀결이며, 버그가 아니다.
 - 결론적으로 `combat.ts`는 이 규칙을 스스로 재구현하거나 재확인하지 않는다 — `detectCollisions`가 이미 엄격 부등식으로 걸러낸 쌍만 넘겨주므로, `applyCombat`은 넘어온 모든 쌍을 무조건 "겹침"으로 신뢰하고 처리한다.
 
@@ -92,11 +93,24 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 - 클램프는 **이동 적용과 같은 틱, `applyMovement` 내부**에서 수행한다. 다음 틱으로 미루지 않는다.
 - 적용 순서: 이동 적용 → 클램프. 클램프를 먼저 하고 이동을 나중에 적용하지 않는다.
 
-### INV-FIRE-1 — 입력 없는 단발 자동 발사와 쿨다운 (D-2)
-`player.fireCooldownRemainSec > 0`인 모든 틱에서 새로 생성되는 투사체 수는 **0**이다. 쿨다운 감소 결과가 `<= 0`인 한 틱에서는 사용자 입력과 무관하게 투사체를 **최대 1개** 생성한다.
-- 쿨다운은 매 틱 무조건 `-= dt`로 먼저 감소한 뒤 0 미만으로 내려가지 않게 `Math.max(0, ...)`를 적용한다. 준비 상태이면 자동 발사하고 `BalanceConfig.player.fireCooldownSec`로 리셋한다.
-- 새 월드는 쿨다운 `0`으로 시작하므로 첫 번째 플레이 틱에 즉시 발사한다.
-- 살아 있는 투사체가 `BalanceConfig.limits.maxProjectiles`에 도달하면 생성을 생략하고 쿨다운만 리셋한다. 다음 발사를 버퍼링하거나 큐잉하지 않는다.
+### INV-FIRE-1 — 일반탄·스킬탄 상호 배제와 개별 쿨다운 (D-2)
+
+한 틱에는 일반탄과 스킬탄 중 **한 탄종만** 생성할 수 있다. `player.isSkillFiring === true`로 처리되는 틱에는 일반탄 생성과 일반 상태 MANA 회복이 모두 0이다.
+
+- `regularFireCooldownRemainSec`와 `skillFireCooldownRemainSec`는 매 틱 각각 `Math.max(0, value - dt)`로 감소한다. 모드 밖의 쿨다운도 계속 감소하므로 모드 전환 시 준비된 탄종은 즉시 발사할 수 있다.
+- 스킬 비활성 상태에서 `input.skill && session.mana >= player.skillStartMana`이면 같은 틱에 스킬 모드에 진입한다. 스킬 활성 상태는 `input.skill && session.mana > 0`인 동안 유지되어, 시작 뒤 MANA가 20 미만이 되어도 중단되지 않는다.
+- 스킬 틱은 `skillManaDrainPerSec * dt`만큼 MANA를 소모하고 준비된 경우 스킬탄을 최대 1개 생성한다. 소모 결과가 0이면 그 틱은 끝까지 스킬 전용으로 처리한 뒤 `isSkillFiring = false`로 만들어 다음 틱에 일반 모드로 돌아간다.
+- 일반 틱은 `manaRegenPerSec * dt`만큼 MANA를 회복하고 준비된 경우 일반탄을 최대 1개 자동 생성한다. 새 월드는 일반 쿨다운이 0이므로 첫 플레이 틱에 입력 없이 즉시 발사한다.
+- 각 탄종이 `limits.maxRegularProjectiles` 또는 `limits.maxSkillProjectiles`에 도달하면 해당 생성을 조용히 생략하고 해당 쿨다운은 리셋한다. 발사를 버퍼링하거나 큐잉하지 않는다.
+
+### INV-MANA-1 — MANA 포화와 탄종별 처치 보상 (D-3)
+
+모든 시스템 실행 뒤 `0 <= world.session.mana <= BalanceConfig.progression.manaMax`가 성립한다. 최대값은 `100`이며 MANA가 이미 100일 때 회복이나 일반탄 처치 보상이 추가되어도 값은 그대로 100이다. 100 도달을 이유로 0으로 리셋하지 않는다.
+
+- 일반 상태의 자연 회복과 일반탄 처치 보상만 MANA를 증가시킨다.
+- 스킬탄 처치는 SCORE를 지급하지만 MANA는 지급하지 않는다.
+- 스킬 상태의 지속 소모만 MANA를 감소시키며 0 아래로 내려가지 않는다.
+- `fireWeapon`과 `applyCombat`은 각 변경 지점에서 즉시 포화시키고, `applyProgression`도 외부 픽스처나 향후 시스템 변경에 대비해 같은 범위를 방어적으로 재적용한다.
 
 ### INV-SPAWN-1 — 스폰 직후 안전 지대 (D-4/D-5, 8방향 확정의 파생 규칙)
 적이 스폰되는 **바로 그 프레임**에서, 해당 적의 AABB는 `world.bounds`의 우측 경계 완전히 바깥에 있으며(`enemy.x >= world.bounds.width`) 플레이어의 AABB와 겹치지 않는다.
@@ -118,12 +132,12 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 - 무적 시간은 매 틱 `-= dt`로 감소하며(`Math.max(0, ...)`), 이 감소는 `applyCombat` 맨 처음 단계에서 수행한다(§1의 순서 참고).
 
 ### 부가 확인 사항 (불변식은 아니지만 리뷰·테스트 시 확인)
-- **투사체 방향:** 투사체는 생성 시점 이후 방향을 바꾸지 않는다. 항상 `+x`로만 이동한다(조준 없음, D-2).
+- **투사체 방향:** 일반탄은 항상 `+x`로 직진한다. 스킬탄은 매 틱 살아 있는 최근접 적의 중심을 향해 `vx`/`vy`를 갱신하며, 대상이 없을 때는 `+x`로 직진한다. 거리 제곱이 같으면 `enemies` 배열의 앞선 적을 선택한다.
 - **적 방향:** 적은 생성 이후 방향을 바꾸지 않는다. 항상 `-x`로만 이동한다(D-5).
 - **재시작 게이팅(D-6):** `input.restart`는 `world.session.status === 'gameover'`일 때만 유효하다. 이 게이팅은 `stepWorld`가 아니라 **`hooks/useGameLoop.ts`(접착 계층)**가 담당한다 — `status`가 `'gameover'`가 되면 `stepWorld` 자체가 no-op이 되므로(§1), 재시작 로직(=`createWorld()` 재호출 + `hudStore.reset()`)은 게임 로직이 아니라 훅이 실행한다. `game/**`는 `createWorld()`를 호출할 뿐, "언제 재호출할지"는 판단하지 않는다.
 - **월드 재생성 시 상태 누수 금지(D-6):** 재시작은 `createWorld()`가 반환하는 **완전히 새로운 객체**로 `useRef.current`를 교체한다. 기존 `GameWorld`의 필드를 하나씩 리셋하지 않는다.
 - **HUD 발행 스로틀 예외:** `status` 필드가 이전 스냅샷과 달라지는 `publish` 호출은 `HUD_PUBLISH_INTERVAL_MS` 스로틀을 무시하고 즉시 반영되어야 한다(구현은 `hooks/useGameLoop.ts` 쪽에서 "마지막 발행 이후 경과 시간 확인"과 별개로 "status 변경 여부"를 체크하는 방식을 권장. `hudStore.publish` 자체는 스로틀 로직을 갖지 않는다 — 호출측 책임).
-- **성능 예산(§6.10):** 1프레임의 `stepWorld` + `drawScene` 합계는 5ms 이내여야 한다. `BalanceConfig.limits.maxEnemies`/`maxProjectiles`를 초과하는 스폰/발사는 (에러를 던지지 않고) **조용히 스킵**한다.
+- **성능 예산(§6.10):** 1프레임의 `stepWorld` + `drawScene` 합계는 5ms 이내여야 한다. `BalanceConfig.limits.maxEnemies`/`maxRegularProjectiles`/`maxSkillProjectiles`를 초과하는 스폰/발사는 (에러를 던지지 않고) **조용히 스킵**한다.
 
 ---
 
@@ -141,13 +155,22 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 | `player.height` | `32` | |
 | `player.speed` | `240` | px/sec |
 | `player.maxHp` | `3` | |
-| `player.fireCooldownSec` | `0.3` | sec (초당 약 3.33발) |
+| `player.regularFireCooldownSec` | `0.3` | sec (초당 약 3.33발) |
+| `player.skillFireCooldownSec` | `0.15` | sec (초당 약 6.67발) |
+| `player.skillStartMana` | `20` | percent, 스킬 시작 임계값 |
+| `player.manaRegenPerSec` | `5` | percent/sec, 일반 상태 자연 회복 |
+| `player.skillManaDrainPerSec` | `30` | percent/sec, 스킬 상태 지속 소모 |
 | `player.invulnSec` | `1.0` | sec |
-| `projectile.width` | `8` | |
-| `projectile.height` | `4` | |
-| `projectile.speed` | `480` | px/sec |
-| `projectile.damage` | `1` | |
-| `projectile.lifetimeSec` | `2.0` | sec (800px / 480px·s⁻¹ ≈ 1.67s보다 여유 있게) |
+| `regularProjectile.width` | `8` | |
+| `regularProjectile.height` | `4` | |
+| `regularProjectile.speed` | `480` | px/sec |
+| `regularProjectile.damage` | `1` | |
+| `regularProjectile.lifetimeSec` | `2.0` | sec (800px / 480px·s⁻¹ ≈ 1.67s보다 여유 있게) |
+| `skillProjectile.width` | `20` | |
+| `skillProjectile.height` | `20` | |
+| `skillProjectile.speed` | `720` | px/sec |
+| `skillProjectile.damage` | `1` | |
+| `skillProjectile.lifetimeSec` | `2.0` | sec |
 | `enemy.width` | `28` | |
 | `enemy.height` | `28` | |
 | `enemy.speed` | `120` | px/sec |
@@ -163,7 +186,8 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 | `progression.levelUpScoreStep` | `100` | 점 (레벨 n→n+1은 누적 점수 `n * 100` 도달 시) |
 | `progression.maxLevel` | `Number.POSITIVE_INFINITY` | "무제한" — `minIntervalSec` 하한이 실질 상한 역할 |
 | `limits.maxEnemies` | `40` | §6.10 |
-| `limits.maxProjectiles` | `60` | §6.10 |
+| `limits.maxRegularProjectiles` | `60` | §6.10 |
+| `limits.maxSkillProjectiles` | `60` | §6.10 |
 | `loop.FIXED_STEP_MS` | `1000 / 60` (≈`16.6667`) | §6.2 **고정** |
 | `loop.MAX_FRAME_MS` | `250` | §6.2 **고정** |
 | `loop.MAX_SUBSTEPS` | `5` | §6.2 **고정** |
@@ -173,8 +197,6 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 
 ## 5. 계약 검증 기록
 
-- **명령(§4.2 Phase 2):**
-  `npx --yes -p typescript@5.7 tsc --noEmit --strict --target ES2022 --lib ES2022 --moduleResolution bundler --module ESNext src/contracts/*.ts`
-  (참고: 순수 `npx --yes typescript@5.7 tsc ...` 형태는 이 npm 버전에서 "could not determine executable to run" 오류를 낸다. 패키지명과 bin명이 달라 `-p` 플래그가 필요하다 — `npx --yes -p typescript@5.7 tsc ...`가 올바른 호출이다.)
-- **결과:** 종료 코드 `0`, 출력 없음 (에러 0건). AABB 경계 판정 JSDoc 보완 후 재검증 완료(§2 신설 반영, 타입 시그니처 변경 없음).
-- **추가 자체 검증(§2.2.2 전체 옵션):** `verbatimModuleSyntax`, `isolatedModules`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `noImplicitOverride`, `forceConsistentCasingInFileNames`, `skipLibCheck`, `noUncheckedIndexedAccess: false`를 모두 켠 임시 tsconfig로도 `tsc --noEmit` 통과 확인(종료 코드 `0`).
+- **명령(§4.2 Phase 2):** `npx tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). 일반탄·스킬탄 엔티티/월드/시스템 계약과 `skill` 입력, MANA 포화 규칙 반영 후 독립 컴파일 통과.
+- **추가 정합성 검증:** 단일 투사체 배열·단일 충돌 결과·단일 발사 쿨다운·MANA 초기화·5필드 입력을 전제로 한 구식 참조 검색 결과 0건.

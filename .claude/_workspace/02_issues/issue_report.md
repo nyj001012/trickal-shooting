@@ -210,3 +210,36 @@
 | URL | https://github.com/nyj001012/trickal-shooting/pull/10 |
 | 기준/작업 브랜치 | `main` ← `feature/9-player-auto-fire` |
 | 상태 | Open |
+
+---
+
+# Issue PM 산출 보고서 — Task #11
+
+- **작성:** Codex (run-pipeline)
+- **일시:** 2026-08-14
+- **플랫폼:** GitHub
+
+## 생성된 이슈
+
+| 항목 | 값 |
+| --- | --- |
+| 이슈 번호 | #11 |
+| URL | https://github.com/nyj001012/trickal-shooting/issues/11 |
+| 제목 | `[Gameplay] 일반탄·스킬탄 분리와 MANA 스킬 발사` |
+| 상태 | Open |
+
+## 파생된 브랜치
+
+| 항목 | 값 |
+| --- | --- |
+| 브랜치명 | `feature/11-projectile-skill-separation` |
+| 파생 기준 | 최신 `origin/main` (`a4b66af`) |
+
+## 완료 조건
+
+- [ ] 일반탄·스킬탄 타입/배열/이동/충돌/전투/렌더 경로 분리
+- [ ] Space 스킬 중 일반탄 중지 및 해제·MANA 고갈 후 자동 재개
+- [ ] MANA 자연 회복·스킬 소모·일반탄 처치 보상과 0~100 포화
+- [ ] lint, typecheck, unit/component test, coverage, format, build 통과
+- [ ] Space 스킬과 MANA 회복 Chromium E2E 통과
+- [ ] 작업 브랜치 Push 및 이슈 #11을 연결한 PR 생성
