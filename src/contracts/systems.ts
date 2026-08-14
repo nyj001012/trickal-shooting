@@ -106,14 +106,15 @@ export type ApplyMovement = (world: GameWorld, input: Readonly<InputState>, dt: 
 
 /**
  * Always decrements `world.player.fireCooldownRemainSec` by `dt` first (floored at 0).
- * Only if `input.fire` is true AND the cooldown is now <= 0 does it spawn exactly one
- * projectile at the player's current position (traveling +x) and reset the cooldown to
- * `BalanceConfig.player.fireCooldownSec`. Never buffers or queues a fire request made
- * while on cooldown (D-2, INV-FIRE-1).
+ * If the cooldown is now <= 0, automatically spawns exactly one projectile at the
+ * player's current position (traveling +x) and resets the cooldown to
+ * `BalanceConfig.player.fireCooldownSec`. The initial zero cooldown therefore fires on
+ * the first playing tick. At the projectile cap it skips creation and still resets the
+ * cooldown; no input, buffering, or queued fire request exists (D-2, INV-FIRE-1).
  * @mutates world.player.fireCooldownRemainSec, world.projectiles, world.nextEntityId
  * @module @/game/systems/weapon
  */
-export type FireWeapon = (world: GameWorld, input: Readonly<InputState>, dt: number) => void;
+export type FireWeapon = (world: GameWorld, dt: number) => void;
 
 // ---------------------------------------------------------------------------
 // spawner.ts

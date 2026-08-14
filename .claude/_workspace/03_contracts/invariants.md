@@ -1,7 +1,7 @@
 # Invariants & System Execution Order
 
 - **작성:** tech-leader (Phase 2)
-- **근거:** `.claude/_workspace/01_architecture/design.md` v3.3 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
+- **근거:** `.claude/_workspace/01_architecture/design.md` v3.4 §6.2 / §6.2.1 / §6.4 / §6.6.1 / §9 (D-1~D-7)
 - **위치:** 타입으로 표현 불가능한 것(불변식·실행 순서·경계 조건·수용 기준)만 여기 적는다. 타입 자체는 `src/contracts/**`가 SSOT다.
 - **소비자:** `frontend-developer`(구현 시 이 순서를 그대로 조립), `frontend-qa`(이 표만 보고 red 테스트를 작성), `e2e-tester`(브라우저 레벨 시나리오 근거).
 
@@ -12,7 +12,7 @@
 `src/game/stepWorld.ts`의 `stepWorld: StepWorld`는 `world.session.status !== 'playing'`이면 **아무 것도 하지 않고 즉시 반환**한다. `'playing'`일 때만 아래 순서를 **정확히** 이 순서로 1회씩 실행한다. 순서를 바꾸려면 계약 개정을 거친다(§6.4).
 
 ```
-1. fireWeapon(world, input, dt)        // game/systems/weapon.ts
+1. fireWeapon(world, dt)               // game/systems/weapon.ts
 2. applyMovement(world, input, dt)     // game/systems/movement.ts
 3. spawnTick(world, dt, rng)           // game/systems/spawner.ts
 4. const collisions = detectCollisions(world)   // game/systems/collision.ts (읽기 전용)
@@ -28,7 +28,7 @@
 - 4(충돌 판정)는 **2와 3 다음**에 실행한다 — 이동·스폰이 끝난 "이번 틱의 최종 위치" 기준으로 겹침을 판정해야 겹침 판정이 프레임 지연 없이 정확하다.
 - 6(진행도)이 5(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·마나 리셋·게임오버 전이를 판정해야 같은 틱 안에서 즉시 반영된다.
 - **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~6 사이에서는 `alive` 플래그만 뒤집는다.
-- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태이므로, "input 반영"은 1~3단계의 각 시스템이 필요한 만큼 `input`을 직접 읽는 것으로 완료된다.
+- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태이며 이동 시스템만 방향 입력을 읽는다. 무기 시스템은 입력을 받지 않고 자동 발사한다.
 - `dt`는 항상 고정 스텝(`BalanceConfig.loop.FIXED_STEP_MS / 1000`)이며, 가변 프레임 델타를 그대로 넘기지 않는다(§6.2 누산기 패턴은 `hooks/useGameLoop.ts` 책임).
 
 ---
@@ -92,9 +92,11 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 - 클램프는 **이동 적용과 같은 틱, `applyMovement` 내부**에서 수행한다. 다음 틱으로 미루지 않는다.
 - 적용 순서: 이동 적용 → 클램프. 클램프를 먼저 하고 이동을 나중에 적용하지 않는다.
 
-### INV-FIRE-1 — 발사 쿨다운 중 투사체 생성 금지 (D-2)
-`player.fireCooldownRemainSec > 0`인 모든 틱에서, 그 틱에 새로 생성되는 투사체 수는 **0**이다. `input.fire`가 그 구간 내내 `true`로 유지되어도 결과는 같다(입력 버퍼링/큐잉 없음).
-- 쿨다운은 매 틱 무조건 `-= dt`로 먼저 감소한 뒤(0 미만으로 내려가지 않게 `Math.max(0, ...)`), 그 결과가 `<= 0`이고 `input.fire`가 `true`일 때만 발사하고 쿨다운을 `BalanceConfig.player.fireCooldownSec`로 리셋한다.
+### INV-FIRE-1 — 입력 없는 단발 자동 발사와 쿨다운 (D-2)
+`player.fireCooldownRemainSec > 0`인 모든 틱에서 새로 생성되는 투사체 수는 **0**이다. 쿨다운 감소 결과가 `<= 0`인 한 틱에서는 사용자 입력과 무관하게 투사체를 **최대 1개** 생성한다.
+- 쿨다운은 매 틱 무조건 `-= dt`로 먼저 감소한 뒤 0 미만으로 내려가지 않게 `Math.max(0, ...)`를 적용한다. 준비 상태이면 자동 발사하고 `BalanceConfig.player.fireCooldownSec`로 리셋한다.
+- 새 월드는 쿨다운 `0`으로 시작하므로 첫 번째 플레이 틱에 즉시 발사한다.
+- 살아 있는 투사체가 `BalanceConfig.limits.maxProjectiles`에 도달하면 생성을 생략하고 쿨다운만 리셋한다. 다음 발사를 버퍼링하거나 큐잉하지 않는다.
 
 ### INV-SPAWN-1 — 스폰 직후 안전 지대 (D-4/D-5, 8방향 확정의 파생 규칙)
 적이 스폰되는 **바로 그 프레임**에서, 해당 적의 AABB는 `world.bounds`의 우측 경계 완전히 바깥에 있으며(`enemy.x >= world.bounds.width`) 플레이어의 AABB와 겹치지 않는다.
@@ -139,7 +141,7 @@ player.y = clamp(player.y, 0, world.bounds.height - player.height)
 | `player.height` | `32` | |
 | `player.speed` | `240` | px/sec |
 | `player.maxHp` | `3` | |
-| `player.fireCooldownSec` | `0.35` | sec (초당 약 2.86발) |
+| `player.fireCooldownSec` | `0.3` | sec (초당 약 3.33발) |
 | `player.invulnSec` | `1.0` | sec |
 | `projectile.width` | `8` | |
 | `projectile.height` | `4` | |

@@ -10,6 +10,5 @@ export const createInputState: CreateInputState = (): InputState => ({
   down: false,
   left: false,
   right: false,
-  fire: false,
   restart: false,
 });

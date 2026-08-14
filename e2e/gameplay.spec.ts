@@ -103,12 +103,10 @@ test.describe('결정적 게임플레이', () => {
     await waitForTestBridge(page);
   });
 
-  test('스페이스바 발사로 적을 처치하면 SCORE와 MANA가 증가한다', async ({ page }) => {
+  test('키 입력 없이 자동 발사로 적을 처치하면 SCORE와 MANA가 증가한다', async ({ page }) => {
     await page.evaluate(() => window.__TRICKAL_TEST__?.seed(6));
 
-    await page.keyboard.down('Space');
     await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(100));
-    await page.keyboard.up('Space');
 
     await expect(page.getByTestId('hud-score')).toHaveText('SCORE: 10');
     await expect(page.getByTestId('hud-mana')).toHaveText('MANA: 5%');
@@ -130,7 +128,7 @@ test.describe('결정적 게임플레이', () => {
 
   test('직접 접촉 피해로 게임오버가 되고 R 키로 초기 상태에 복귀한다', async ({ page }) => {
     await page.evaluate(() => window.__TRICKAL_TEST__?.seed(6));
-    await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(2_000));
+    await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(6_000));
 
     const gameOver = page.getByTestId('game-over');
     await expect(gameOver).toBeVisible();
