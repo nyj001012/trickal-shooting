@@ -116,4 +116,13 @@
 - [x] 캔버스 고정 인라인 표시 크기 제거 및 HUD를 게임 보드 내부에 배치
 - [x] 데스크톱·태블릿·모바일 가로 대표 뷰포트 E2E 통과
 - [x] lint, typecheck, unit/component test, format, build 통과
-- [ ] 작업 브랜치 Push 및 이슈 #5를 연결한 PR 생성
+- [x] 작업 브랜치 Push 및 이슈 #5를 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #6 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/6 |
+| 기준/작업 브랜치 | `main` ← `feature/5-responsive-fullpage-layout` |
+| 상태 | Open |
