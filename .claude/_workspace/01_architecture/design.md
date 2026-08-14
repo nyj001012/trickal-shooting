@@ -1,6 +1,6 @@
 # 트릭컬 슈팅게임 — 시스템 아키텍처 설계서 (Greyboxing Phase)
 
-- **문서 버전:** 3.0 (언어 **TypeScript 전면 도입** 확정 / §5 계약 산출 형식 재설계)
+- **문서 버전:** 3.1 (§9 게임 디자인 **7개 항목 확정** 반영 — 특히 **D-1 플레이어 8방향 이동** 확정에 따른 §6.2.1 신설 및 문서 전반 정합화)
 - **작성:** system-architect (Phase 1)
 - **상태:** `[APPROVED]` — 기술 스택 / 표준 명령어 / 소유권 경로 모두 확정됨
 - **저장소:** `D:\dev\trickal-shooting` (신규, `README.md`만 존재)
@@ -296,8 +296,8 @@ test:coverage, lint, lint:fix, format, format:check, e2e, e2e:report
 | `src/contracts/ui.ts` | 타입 소스 | `HudSnapshot`, `HudStore`, 컴포넌트 Props, `TestBridge` |
 | `src/contracts/balance.ts` | 타입 소스 | `BalanceConfig` **타입만**(실제 수치 값은 `src/game/balance.ts`가 FE-DEV 소유로 보유) |
 | `src/contracts/index.ts` | 배럴 | 위 전부 re-export. **앱·테스트는 `@/contracts`에서만 import한다.** |
-| `.claude/_workspace/03_contracts/invariants.md` | 산문 명세 | 타입으로 표현 **불가능한** 것: 불변식, 실행 순서, 경계 조건, 수용 기준 |
-| `.claude/_workspace/03_contracts/ui-contracts.md` | 산문 명세 | HUD 표시 문자열 포맷, `data-testid` 목록, 키 바인딩, E2E 브릿지 사용 규약 |
+| `.claude/_workspace/03_contracts/invariants.md` | 산문 명세 | 타입으로 표현 **불가능한** 것: 불변식, 실행 순서, 경계 조건, 수용 기준. **§6.2.1의 `INV-MOVE-1/2`, `INV-FIRE-1`, `INV-SPAWN-1`, `INV-DMG-1`을 반드시 포함**한다. |
+| `.claude/_workspace/03_contracts/ui-contracts.md` | 산문 명세 | HUD 표시 문자열 포맷, `data-testid` 목록, **키 바인딩 표(§6.2.1-(1), `event.code` 기준 6종)**, 게임오버 오버레이 문구·재시작 키, E2E 브릿지 사용 규약 |
 | `.claude/_workspace/03_contracts/module-map.md` | **슬림화된 매핑표** | §5.5 참조 |
 
 ### 5.3 `src/contracts/**` 작성 규칙 (위반 시 반려)
@@ -406,6 +406,79 @@ drawScene(ctx, world);
 - `rng`는 `game/rng.ts`의 **시드 기반 결정적 생성기**(mulberry32 등). 테스트는 고정 시드를 주입해 스폰 순서를 재현한다.
 - 테스트는 rAF 없이 `stepWorld`를 N회 직접 호출한다(`tests/helpers/`에 `advance(world, seconds)` 헬퍼 권장).
 
+### 6.2.1 입력·이동·경계·난이도 규약 (§9 확정 사양의 구현 규격)
+
+> §9의 D-1 ~ D-6을 시뮬레이션 계층 규약으로 옮긴 것이다. `tech-leader`는 이 내용을 `invariants.md`(불변식)와 `ui-contracts.md`(키 바인딩)로 고정한다.
+
+#### (1) 키 바인딩 (D-1 / D-2 / D-6) — `ui-contracts.md`에 고정
+
+| 동작 | 키 | 비고 |
+| --- | --- | --- |
+| 위로 이동 | `ArrowUp` / `KeyW` | |
+| 아래로 이동 | `ArrowDown` / `KeyS` | |
+| **왼쪽으로 이동** | `ArrowLeft` / `KeyA` | **8방향 확정으로 신설** |
+| **오른쪽으로 이동** | `ArrowRight` / `KeyD` | **8방향 확정으로 신설** |
+| 발사 | `Space` | 누르고 있으면 쿨다운마다 연사(D-2) |
+| 재시작 | `KeyR` | `status === 'gameover'` 일 때만 유효(D-6) |
+
+- 키 식별은 레이아웃 의존적인 `event.key`가 아니라 **`event.code`** 를 사용한다(한/영 전환·비 QWERTY 환경에서도 동작).
+- `InputState`는 **의미 단위 boolean 집합**(`up`/`down`/`left`/`right`/`fire`/`restart`)으로 정규화해 보관한다. **DOM 키 코드는 `hooks/useKeyboardInput.ts`에서만 다루고 `game/**`에는 절대 넘기지 않는다**(§6.0 규칙 1).
+- `Space`·방향키의 브라우저 기본 스크롤 동작을 `preventDefault`로 차단한다.
+- 창 포커스 상실(`blur`) 시 `InputState`를 **전부 false로 초기화**한다(키가 눌린 채 고착되는 사고 방지).
+
+#### (2) 대각선 이동 속도 정규화 (D-1) — **필수 불변식**
+
+8방향 이동에서 좌우·상하 입력을 단순 합산하면 대각선 속도가 `√2 ≈ 1.414`배가 되어 대각선 이동이 유리해지는 고전적 버그가 발생한다. 다음을 강제한다.
+
+```
+dx = (right ? 1 : 0) - (left ? 1 : 0)      // -1 | 0 | 1
+dy = (down  ? 1 : 0) - (up   ? 1 : 0)      // -1 | 0 | 1
+len = Math.hypot(dx, dy)
+if (len > 0) {
+  x += (dx / len) * PLAYER_SPEED * dt      // 정규화 후 속도 적용
+  y += (dy / len) * PLAYER_SPEED * dt
+}
+```
+- **불변식 INV-MOVE-1:** 어떤 입력 조합에서도 1틱 이동 거리는 `PLAYER_SPEED * dt`를 초과하지 않는다.
+- 반대 방향 동시 입력(`left && right`)은 `dx = 0`으로 상쇄되며, 이는 정상 동작이다.
+- 이 규칙은 `game/systems/movement.ts`의 순수 함수에 있으므로 **좌표 계산만으로 단위 테스트**한다(대각선 입력 시 이동 거리가 직선 입력과 동일한지 검증).
+
+#### (3) 플레이어 경계 클램프 (D-1) — **필수 불변식**
+
+캔버스 전역을 이동하므로 **x·y 양축 모두** 클램프한다(기존 y축만 클램프하던 전제는 폐기).
+
+```
+player.x = clamp(player.x, 0, bounds.width  - player.width)
+player.y = clamp(player.y, 0, bounds.height - player.height)
+```
+- **불변식 INV-MOVE-2:** 어떤 틱에서도 플레이어의 AABB는 `bounds` 내부에 완전히 포함된다.
+- 클램프는 **이동 적용 직후 같은 틱 안에서** 수행한다(다음 틱으로 넘기지 않는다).
+
+#### (4) 투사체 발사 (D-2)
+
+- `weapon.ts`는 `fireCooldownSec > 0` 이면 **아무 것도 하지 않는다**(입력을 버퍼링하지 않는다).
+- 발사 시 투사체는 **플레이어의 현재 위치 기준**으로 생성되며 **항상 +x 방향(우측)으로 직진**한다. 플레이어가 어디로 움직이든 발사 방향은 우측 고정이다(이번 단계에서 조준 방향은 도입하지 않는다).
+- **불변식 INV-FIRE-1:** 쿨다운 잔여 중 `fire` 입력이 유지되어도 틱당 생성되는 투사체 수는 0이다.
+
+#### (5) 적 생성·소멸과 난이도 (D-4 / D-5) — ★ 8방향 확정에 따른 전제 재검토 결과
+
+플레이어가 우측으로 전진할 수 있게 되었으므로 "플레이어는 좌측 고정"을 암묵 전제한 서술을 다음과 같이 **명시적으로 재정의**한다. 재검토 결과 **스폰·이탈·난이도 모델은 그대로 성립**하며, 대신 아래 항목을 추가로 못 박는다.
+
+- **스폰 위치:** 적은 **화면 우측 바깥**(`x = bounds.width`, y는 rng로 결정)에서 생성된다. 플레이어의 현재 x좌표와 **무관하다**.
+- **스폰 안전 규칙(신설, 8방향 확정의 직접 결과):** 플레이어가 우측 끝까지 전진할 수 있으므로 **스폰 지점과 플레이어가 겹친 채 생성되는 상황**이 가능해졌다. 적은 화면 밖(`x >= bounds.width`)에서 생성되므로 **생성 즉시 충돌하지 않는다**는 것을 불변식으로 고정한다.
+  - **불변식 INV-SPAWN-1:** 스폰 직후 프레임에서 적의 AABB는 `bounds` 우측 경계 바깥에 있으며 플레이어와 겹치지 않는다.
+- **이탈 판정(D-5):** 적이 **화면 좌측 경계를 완전히 벗어나면**(`enemy.x + enemy.width < 0`) 플레이어 HP를 1 감소시키고 해당 적을 `alive = false`로 표시한다. 이는 **플레이어 위치와 무관한 판정**이므로 8방향 이동 확정의 영향을 받지 않는다.
+- **플레이어-적 접촉:** 플레이어가 우측으로 전진해 적과 직접 충돌할 수 있다. 이 경우도 **HP 1 감소 + 해당 적 제거**로 처리한다(§6.4의 `combat.ts` 책임).
+  - **피격 무적 시간(신설, 8방향 확정의 직접 결과):** 8방향 이동 이전에는 플레이어가 적에게 스스로 돌진할 수 없어 접촉 피해가 사실상 발생하지 않았다. 이제는 플레이어가 적 무리에 파고들 수 있으므로, 무적 시간이 없으면 **접촉 1회에 HP 3이 한 프레임에 증발**한다. 따라서 피격 후 `PLAYER_INVULN_SEC` 동안 추가 피해를 받지 않는 **무적 시간을 도입한다**(무적 중 렌더는 `hitFlash` 팔레트로 표시).
+  - **불변식 INV-DMG-1:** 임의의 `PLAYER_INVULN_SEC` 구간 안에서 플레이어 HP 감소는 최대 1이다.
+- **난이도(D-4):** 점수가 임계값을 넘으면 레벨이 1 상승하고 **스폰 주기(초)가 단축**된다. 스폰 주기에는 **하한(`SPAWN_INTERVAL_MIN_SEC`)** 을 두어 무한 단축으로 인한 프레임 붕괴를 막는다(§6.10 성능 예산·엔티티 상한과 연동).
+
+#### (6) 게임오버와 재시작 (D-6)
+
+- `progression.ts`가 `hp <= 0`을 감지하면 `status`를 `'gameover'`로 전이하고, `hudStore.publish`는 **스로틀을 무시하고 즉시 발행**한다(§6.1).
+- `status === 'gameover'` 이면 `stepWorld`는 시뮬레이션을 진행하지 않는다(렌더는 마지막 화면을 유지).
+- `restart` 입력은 **`gameover` 상태에서만** 유효하며, `createWorld()` 재호출로 월드를 전체 재생성하고 `hudStore.reset()`을 호출한다. **월드 객체를 부분적으로 되돌리지 않는다**(잔여 상태 누수 방지).
+
 ### 6.3 엔티티 모델링 규약 — **공통 base interface + `kind` 판별 유니온 (병행)**
 
 **결정:** 둘 중 택일이 아니라 **역할별로 나눈다.**
@@ -441,8 +514,10 @@ default: {
 ### 6.4 순수 로직 분리 규약
 
 - `game/systems/*.ts`의 각 함수는 **하나의 관심사**만 처리하고, `stepWorld.ts`가 **정해진 순서**로 조립한다.
-  권장 순서: `input 반영 → weapon(발사) → movement(이동) → spawner(스폰) → collision(판정) → combat(피해/사망/점수) → progression(마나/레벨/게임오버) → 죽은 엔티티 정리`
+  권장 순서: `input 반영 → weapon(발사) → movement(이동 + 플레이어 경계 클램프 + 적 좌측 이탈 판정) → spawner(스폰) → collision(판정) → combat(피해/사망/점수, 무적 시간 감소) → progression(마나/레벨/게임오버) → 죽은 엔티티 정리`
   이 순서는 `invariants.md`에 명문화하고 변경 시 계약 개정을 거친다.
+  - **클램프는 `movement` 단계 안에서** 이동 적용 직후 수행한다(§6.2.1-(3)). 별도 시스템으로 분리하지 않는다.
+  - **무적 시간(`invulnRemainSec`)·발사 쿨다운은 각 담당 시스템에서 `-= dt`** 로 감소시키며, 감소와 판정 순서를 `invariants.md`에 고정한다.
 - **판정 함수는 부수효과가 없어야 한다.** `collision.ts`는 상태를 바꾸지 않고 **충돌쌍 목록만 반환**하고, 피해 적용은 `combat.ts`가 한다. → 충돌 판정을 좌표 몇 개로 단위 테스트할 수 있다.
 - 성능을 위해 `stepWorld` 내부의 인플레이스 변형은 허용하되 **`@mutates`로 계약에 명시**한다. "순수"의 정의는 *같은 입력 → 같은 결과, 외부 세계 미참조*.
 - 엔티티 제거는 순회 중 `splice` 하지 않고 **`alive = false` → 틱 말미 일괄 필터**로 처리한다(인덱스 붕괴 방지).
@@ -484,10 +559,43 @@ default: {
 ### 6.6 밸런스 상수 분리 규약 (★ 유지)
 
 - **모든 튜닝 값은 `src/game/balance.ts` 단일 파일**에 모으고 §6.5.1의 `as const satisfies BalanceConfig` 패턴으로 export한다.
-- 포함 대상: 캔버스 논리 크기, 플레이어 이동속도·최대 HP·발사 쿨다운, 투사체 속도·피해·수명, 적 이동속도·HP·점수·크기, 스폰 주기·웨이브 증가율, 마나 획득량/최대치, 레벨업 임계값, 엔티티 상한, `FIXED_STEP_MS` / `MAX_FRAME_MS` / `MAX_SUBSTEPS` / `HUD_PUBLISH_INTERVAL_MS`.
 - **`src/game/**`, `src/hooks/**`, `src/ui/**` 어디에도 게임플레이 매직 넘버를 쓰지 않는다.** 하드코딩된 수치는 즉시 반려 사유(좌표 0, 배열 인덱스 등 구조적 상수는 예외).
 - 모든 상수에 **단위를 JSDoc으로 병기**한다(`/** px/sec */`).
 - 테스트는 balance 값을 하드코딩해 단정하지 않고 **balance 모듈을 import해 참조**한다. → 튜닝이 테스트를 깨뜨리지 않는다.
+
+#### 6.6.1 `BalanceConfig` 필수 키 목록 (§9 확정 사양 기준 — `tech-leader`는 이 목록으로 타입을 정의한다)
+
+> 아래는 **키와 단위의 확정 목록**이다. 수치(값)는 `frontend-developer`가 `src/game/balance.ts`에 채운다. **키를 임의로 빼거나 이름을 바꾸지 않는다.** 추가가 필요하면 계약 개정 절차를 따른다.
+
+| 그룹 | 키 | 단위 | 근거 |
+| --- | --- | --- | --- |
+| `canvas` | `width`, `height` | px | 800 / 600 고정(§1.1) |
+| `player` | `spawnX`, `spawnY` | px | 초기 배치 |
+| | `width`, `height` | px | AABB 크기 |
+| | `speed` | **px/sec** | D-1 8방향 이동 속도(정규화 후 적용) |
+| | `maxHp` | 점 | HUD `♥ n / maxHp` |
+| | `fireCooldownSec` | **sec** | D-2 |
+| | **`invulnSec`** | **sec** | **8방향 확정으로 신설** — 피격 무적 시간(INV-DMG-1) |
+| `projectile` | `width`, `height` | px | |
+| | `speed` | px/sec | 항상 +x 방향(§6.2.1-(4)) |
+| | `damage` | 점 | |
+| | `lifetimeSec` | sec | 화면 밖 이탈 전 안전망 |
+| `enemy` | `width`, `height` | px | |
+| | `speed` | px/sec | D-5 좌측 직진(x 감소) |
+| | `hp` | 점 | |
+| | `scoreValue` | 점 | 처치 시 가산 점수 |
+| | `manaGain` | % | D-3 처치 시 마나 누적량 |
+| | `contactDamage` | 점 | 플레이어 접촉 피해 |
+| | `escapeDamage` | 점 | D-5 좌측 이탈 시 플레이어 피해(=1) |
+| `spawn` | `initialIntervalSec` | sec | D-4 초기 스폰 주기 |
+| | `intervalDecayPerLevel` | sec 또는 비율 | D-4 레벨당 주기 단축량 |
+| | `minIntervalSec` | sec | 하한(§6.2.1-(5)) |
+| | `marginY` | px | 상하 스폰 여백 |
+| `progression` | `manaMax` | % | D-3 (=100) |
+| | `levelUpScoreStep` | 점 | D-4 레벨업 점수 임계 간격 |
+| | `maxLevel` | 정수 또는 무제한 표기 | 난이도 상한 |
+| `limits` | `maxEnemies`, `maxProjectiles` | 개 | §6.10 성능 예산 |
+| `loop` | `FIXED_STEP_MS`, `MAX_FRAME_MS`, `MAX_SUBSTEPS`, `HUD_PUBLISH_INTERVAL_MS` | ms / 회 | §6.1, §6.2 |
 
 ### 6.7 그레이박스 렌더 규약 (★ 유지)
 
@@ -527,6 +635,7 @@ default: {
 
 1. **HUD `data-testid` 고정** — `hud-hp`, `hud-mana`, `hud-score`, `hud-level`, 캔버스 `game-canvas`, 게임오버 오버레이 `game-over`.
    HUD 표시 문자열도 계약(`ui-contracts.md`)으로 고정: `♥ {hp} / {maxHp}`, `MANA: {mana}%`, `SCORE: {score}`, `LV. {level}`.
+   게임오버 오버레이(`game-over`)는 **재시작 키(`R`)를 텍스트로 안내**해야 한다(§9 D-6). E2E는 이 텍스트 노출 → `R` 키 입력 → HUD 초기값 복귀를 하나의 시나리오로 검증한다.
 2. **테스트 브릿지 (`src/testBridge.ts`)**
    - **타입 선언 위치:** 인터페이스 `TestBridge`는 `src/contracts/ui.ts`(tech-leader), **전역 확장은 `src/types/global.d.ts`(frontend-developer)** 에 둔다.
      ```ts
@@ -572,7 +681,7 @@ default: {
 | 0 | Phase 2 | `tech-leader` | `src/contracts/**` 타입 소스 + `03_contracts/{invariants,ui-contracts,module-map}.md` 작성 → §4.2 Phase 2 명령으로 독립 검증. |
 | 1 | Phase 3 착수 **직후 최우선** | `frontend-developer` | **수동 스캐폴딩 — 아래 파일을 직접 작성한다.**<br>`package.json`(§2.1 의존성 + §4.1 스크립트 15종 + `"type": "module"`), `index.html`, `vite.config.ts`(Vite+Vitest 통합·`@/*` alias·포트 5173/4173 고정·테스트 환경 분리), `vitest.setup.ts`(jest-dom + canvas 스텁), **`tsconfig.json`**(§2.2, include: `src`/`tests`/`e2e`), **`tsconfig.node.json`**(§2.2, include: `*.config.ts`), `eslint.config.ts`(§4.3), `.prettierrc`, **`.gitignore`**(저장소에 없으므로 신규 생성: `node_modules/`, `dist/`, `coverage/`, `playwright-report/`, `test-results/`, `.vite/`, `*.local`), `src/vite-env.d.ts`, `src/types/global.d.ts`(§6.9). |
 | 2 | 1 직후 | `frontend-developer` | `npm install` → `package-lock.json` 생성 확인. |
-| 3 | 2 직후 | `frontend-developer` | **골격 파일 배치.** `src/main.tsx`, `src/App.tsx`, `src/game/balance.ts`(계약 `BalanceConfig` 기반 실제 수치 — §9 기본 가정값 + `// TODO(balance)`), 나머지 모듈은 **파일과 export 시그니처만 생성하고 본문은 최소 스텁**(QA가 import할 대상이 존재해야 함). 스텁도 §5.4 패턴(`export const f: ContractType = ...`)을 지키며 `any` / `as unknown as` 로 때우지 않는다. |
+| 3 | 2 직후 | `frontend-developer` | **골격 파일 배치.** `src/main.tsx`, `src/App.tsx`, `src/game/balance.ts`(계약 `BalanceConfig` 기반 실제 수치 — **§6.6.1 필수 키 목록을 빠짐없이 채운다.** §9가 확정 사양이므로 `// TODO(balance)` 유보 표기는 사용하지 않는다), 나머지 모듈은 **파일과 export 시그니처만 생성하고 본문은 최소 스텁**(QA가 import할 대상이 존재해야 함). 스텁도 §5.4 패턴(`export const f: ContractType = ...`)을 지키며 `any` / `as unknown as` 로 때우지 않는다. |
 | 4 | 3 직후 | `frontend-developer` | **게이트 4종 확인:** `npm run lint` → `npm run typecheck` → `npm test`(0 test 통과) → `npm run build`. **4개 전부 통과하기 전에는 다음 단계로 넘어가지 않는다.** |
 | 5 | 4 통과 후 | `frontend-developer` | `SendMessage(to: "frontend-qa", ...)` — "스캐폴딩 완료. TypeScript 스택·명령어·계약(`@/contracts`)·모듈 경로 준비됨. Red 테스트 작성을 시작하세요." (실행한 4개 명령과 결과 첨부) |
 | 6 | 5 수신 후 | `frontend-qa` | `src/contracts/**` + `module-map.md` + `invariants.md` + `ui-contracts.md` 만 보고 **실패하는 테스트**를 `tests/unit/**`(`.test.ts`) / `tests/component/**`(`.test.tsx`)에 작성. `npm test`로 **타입/문법 오류가 아닌 어설션 실패(Red)** 임을 확인. |
@@ -601,22 +710,28 @@ default: {
 | dt 개념 없음 | 고정 스텝 + 누산기 | 프레임률 독립성 및 테스트 재현성(§6.2) |
 | `canvasRef.current` / `getContext` 널 미처리 | strict 하에서 **널 가드 필수**(`!` 단언 금지) | 런타임 크래시 차단(§6.5.3) |
 | 매직 넘버 인라인(50, 300, 40, 800, 600 …) | `balance.ts` 단일 집약 + `as const satisfies` | 튜닝 지점 일원화(§6.6) |
+| **플레이어 이동: 미구현**(좌표 고정, 입력 처리 없음) | **8방향 자유 이동 + 대각선 속도 정규화 + x·y 양축 경계 클램프** | §9 D-1 확정. 키 바인딩 6종(`event.code`), `INV-MOVE-1/2` 불변식 신설(§6.2.1) |
+| 발사·적 이동·충돌 미구현(TODO 주석) | 스페이스바 수동 발사 + 쿨다운, 적 좌측 직진·이탈 시 HP 감소, **피격 무적 시간 신설** | §9 D-2/D-5 확정. 8방향 이동으로 플레이어가 적에게 돌진 가능해져 `INV-DMG-1`(무적 시간)이 필수가 됨(§6.2.1-(5)) |
+| 재시작 수단 없음 | 게임오버 오버레이 + `R` 키 → `createWorld()` 재호출 + `hudStore.reset()` | §9 D-6 확정(§6.2.1-(6), §6.9) |
 
 ---
 
-## 9. 미결 사항 (Open Issues) — ★ 유지
+## 9. 확정된 게임 디자인 결정 (Confirmed Game Design Decisions)
 
-> 아래는 **아키텍처를 막지 않는** 게임 디자인 수준의 미결이다. `issue-pm`이 요구사항으로 확정하고 `tech-leader`가 계약 타입/`invariants.md`로 고정한다. 그때까지 `frontend-developer`는 `balance.ts`에 **기본 가정값 + `// TODO(balance)` 주석**으로 두고 진행한다.
+> 아래 7개 항목은 **사용자가 확정한 사양**이다. 가정이나 기본값이 아니며, **협의 없이 변경할 수 없다.**
+> `tech-leader`는 이 사양을 `src/contracts/**` 타입과 `.claude/_workspace/03_contracts/invariants.md`·`ui-contracts.md`에 고정하고, `frontend-developer`는 **§6.6.1의 필수 키 목록**에 따라 `src/game/balance.ts`에 수치를 확정 배치한다. **`// TODO(balance)` 유보 표기는 더 이상 사용하지 않는다.**
 
-| # | 항목 | 결정 주체 | 기본 가정(미결정 시 채택) |
+| # | 항목 | 확정 사양 | 상세 규약 |
 | --- | --- | --- | --- |
-| O-1 | 플레이어 이동 축: 상하만 vs 8방향 | issue-pm | **상하 이동만** (좌측 고정 슈터, 뼈대 코드의 x=50 배치 계승) |
-| O-2 | 발사 방식: 자동 vs 스페이스바 수동 | issue-pm | **스페이스바 수동 + 쿨다운** |
-| O-3 | MANA의 게임적 의미 | issue-pm | **적 처치 시 누적, 100% 도달 시 리셋** (스킬 발동은 향후 단계, 이번엔 게이지 표시까지) |
-| O-4 | 레벨업 조건(점수 vs 시간) | issue-pm | **점수 임계값 기반**, 레벨 상승 시 스폰 주기 단축 |
-| O-5 | 적의 행동(직진 vs 추적) | issue-pm | **좌측 직진**, 화면 좌측 이탈 시 플레이어 HP 1 감소 |
-| O-6 | 게임오버 후 재시작 UI | issue-pm | **오버레이 + R 키 재시작** (`createWorld()` 재호출) |
-| O-7 | 히트박스 디버그 토글 키 | frontend-developer | 미제공(내부 플래그만). 필요 시 리뷰에서 논의 |
+| **D-1** | 플레이어 이동 | **8방향 자유 이동.** 캔버스 전역(800x600)을 이동하며 **x·y 모두 화면 경계로 클램프**된다. 대각선 동시 입력 시 **속도 정규화** 필수. | §6.2.1 |
+| **D-2** | 발사 방식 | **스페이스바 수동 발사 + 쿨다운.** 쿨다운 잔여 중 입력은 무시되며 투사체가 생성되지 않는다(큐잉·선입력 버퍼 없음). | §6.2.1 |
+| **D-3** | MANA | **적 처치 시 누적, 100% 도달 시 0으로 리셋.** 이번 단계는 **게이지 표시까지만** 구현하며 스킬 발동은 차기 단계로 미룬다. | §6.2.1, §6.9 |
+| **D-4** | 레벨업 | **점수 임계값 기반.** 레벨 상승 시 **스폰 주기가 단축**된다(이번 단계 난이도 상승의 유일한 축). | §6.2.1 |
+| **D-5** | 적 행동 | **좌측 방향 직진**(x 감소). 화면 **좌측 경계를 이탈하면 플레이어 HP 1 감소** 후 해당 적 제거. | §6.2.1 |
+| **D-6** | 재시작 | **게임오버 오버레이 표시 + `R` 키로 재시작** (`createWorld()` 재호출로 월드 전체 재생성, `hudStore.reset()` 동반). | §6.2.1, §6.9 |
+| **D-7** | 히트박스 디버그 | **토글 키 미제공.** 렌더 계층 **내부 플래그(기본 off)** 로만 존재하며 사용자 입력에 노출하지 않는다. | §6.7 |
+
+**아직 열려 있는 항목: 없음.** 새로운 게임 디자인 질문이 생기면 구현자가 임의 판단하지 말고 오케스트레이터에게 질의한다.
 
 ---
 
@@ -634,5 +749,8 @@ default: {
 - [x] `window.__TRICKAL_TEST__` 전역 선언 위치와 프로덕션 번들 취급이 결정되었는가 → §6.9
 - [x] 스캐폴딩 파일 목록에 `tsconfig*.json`과 `.gitignore`가 포함되고 게이트 4종이 유지되었는가 → §7.2
 - [x] §8이 "JS → TS 전환"을 포함해 갱신되었는가 → §8
-- [x] 유지 지시 항목(§6.1 HUD 동기화, §6.2 고정 타임스텝, §6.7 그레이박스 렌더, §9 미결사항)이 보존되었는가 → 전부 유지
+- [x] 유지 지시 항목(§6.1 HUD 동기화, §6.2 고정 타임스텝, §6.7 그레이박스 렌더)이 보존되었는가 → 전부 유지
+- [x] **§9가 「미결 사항」에서 「확정된 게임 디자인 결정」(D-1~D-7)으로 갱신되고 조건부 서술이 전부 제거되었는가** → §9
+- [x] **D-1(8방향 이동) 파급이 문서 전체에 반영되었는가** → §6.2.1 신설(키 바인딩 6종·대각선 정규화·양축 클램프·스폰/이탈/무적·재시작), §6.4 실행 순서, §6.6.1 balance 키, §5.2 계약 산출물, §6.9 오버레이, §8, §9
+- [x] `tech-leader`가 추측 없이 `BalanceConfig`를 정의할 수 있도록 키·단위 목록이 제공되었는가 → §6.6.1
 - [x] 배포/인프라를 설계하지 않고 범위 밖으로만 선언했는가 → §1.2, §6.10
