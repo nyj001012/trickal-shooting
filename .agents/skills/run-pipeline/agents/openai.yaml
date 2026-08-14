@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Run Pipeline'
+  short_description: '요구 분석부터 PR까지 저장소 개발 파이프라인 실행'
+  default_prompt: 'Use $run-pipeline to analyze this repository change and carry it through implementation, validation, documentation, and PR handoff.'
+
+policy:
+  allow_implicit_invocation: true
