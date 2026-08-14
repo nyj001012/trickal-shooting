@@ -19,7 +19,14 @@ describe('Hud — display-string formats and data-testid (ui-contracts.md §1)',
   });
 
   it('reflects updated values on re-render as plain integers (no decimals, no thousands separators)', () => {
-    const updated: HudSnapshot = { hp: 42, maxHp: 99, mana: 87, score: 12345, level: 7, status: 'playing' };
+    const updated: HudSnapshot = {
+      hp: 42,
+      maxHp: 99,
+      mana: 87,
+      score: 12345,
+      level: 7,
+      status: 'playing',
+    };
     const { rerender } = render(<Hud snapshot={snapshot} />);
     rerender(<Hud snapshot={updated} />);
     expect(screen.getByTestId('hud-hp')).toHaveTextContent('♥ 42 / 99');

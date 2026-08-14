@@ -28,7 +28,9 @@ describe('fireWeapon — cooldown gating (INV-FIRE-1, D-2)', () => {
   });
 
   it('produces zero new projectiles across many ticks while the cooldown stays positive, even if fire is held every tick (no input buffering/queueing)', () => {
-    const world = makeWorld({ player: makePlayer({ fireCooldownRemainSec: BALANCE.player.fireCooldownSec }) });
+    const world = makeWorld({
+      player: makePlayer({ fireCooldownRemainSec: BALANCE.player.fireCooldownSec }),
+    });
     // Stop well short of the cooldown reaching zero, so it is guaranteed to still
     // be positive on every iteration of this loop.
     const halfCooldownTicks = Math.max(1, Math.floor(BALANCE.player.fireCooldownSec / DT / 2));
@@ -51,18 +53,24 @@ describe('fireWeapon — cooldown gating (INV-FIRE-1, D-2)', () => {
   });
 
   it('does not exceed BalanceConfig.limits.maxProjectiles — the spawn is silently skipped, not queued (§6.10)', () => {
-    const existing: Projectile[] = Array.from({ length: BALANCE.limits.maxProjectiles }, (_unused, i) => ({
-      id: i,
-      kind: 'projectile',
-      x: 0,
-      y: 0,
-      width: BALANCE.projectile.width,
-      height: BALANCE.projectile.height,
-      alive: true,
-      damage: BALANCE.projectile.damage,
-      lifetimeRemainSec: BALANCE.projectile.lifetimeSec,
-    }));
-    const world = makeWorld({ player: makePlayer({ fireCooldownRemainSec: 0 }), projectiles: existing });
+    const existing: Projectile[] = Array.from(
+      { length: BALANCE.limits.maxProjectiles },
+      (_unused, i) => ({
+        id: i,
+        kind: 'projectile',
+        x: 0,
+        y: 0,
+        width: BALANCE.projectile.width,
+        height: BALANCE.projectile.height,
+        alive: true,
+        damage: BALANCE.projectile.damage,
+        lifetimeRemainSec: BALANCE.projectile.lifetimeSec,
+      }),
+    );
+    const world = makeWorld({
+      player: makePlayer({ fireCooldownRemainSec: 0 }),
+      projectiles: existing,
+    });
     fireWeapon(world, makeInputState({ fire: true }), DT);
     expect(world.projectiles.length).toBe(BALANCE.limits.maxProjectiles);
   });

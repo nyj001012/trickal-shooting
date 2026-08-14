@@ -32,6 +32,7 @@ export function GameBoard(): JSX.Element {
     });
     return () => {
       cancelled = true;
+      delete window.__TRICKAL_TEST__;
     };
   }, [controller]);
 

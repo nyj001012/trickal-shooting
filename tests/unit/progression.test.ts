@@ -7,7 +7,14 @@ import { makeWorld } from '../helpers/fixtures';
 describe('applyProgression — MANA reset at the configured max (D-3)', () => {
   it('resets mana to 0 once it reaches the configured max', () => {
     const world = makeWorld({
-      session: { hp: 3, maxHp: 3, mana: BALANCE.progression.manaMax, score: 0, level: 1, status: 'playing' },
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: BALANCE.progression.manaMax,
+        score: 0,
+        level: 1,
+        status: 'playing',
+      },
     });
     applyProgression(world);
     expect(world.session.mana).toBe(0);
@@ -15,7 +22,14 @@ describe('applyProgression — MANA reset at the configured max (D-3)', () => {
 
   it('resets to 0 (not to the overshoot remainder) when mana overshoots the max', () => {
     const world = makeWorld({
-      session: { hp: 3, maxHp: 3, mana: BALANCE.progression.manaMax + 50, score: 0, level: 1, status: 'playing' },
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: BALANCE.progression.manaMax + 50,
+        score: 0,
+        level: 1,
+        status: 'playing',
+      },
     });
     applyProgression(world);
     expect(world.session.mana).toBe(0);
@@ -23,7 +37,14 @@ describe('applyProgression — MANA reset at the configured max (D-3)', () => {
 
   it('leaves mana untouched while below the max', () => {
     const world = makeWorld({
-      session: { hp: 3, maxHp: 3, mana: BALANCE.progression.manaMax - 1, score: 0, level: 1, status: 'playing' },
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: BALANCE.progression.manaMax - 1,
+        score: 0,
+        level: 1,
+        status: 'playing',
+      },
     });
     applyProgression(world);
     expect(world.session.mana).toBe(BALANCE.progression.manaMax - 1);
@@ -33,13 +54,23 @@ describe('applyProgression — MANA reset at the configured max (D-3)', () => {
 describe('applyProgression — level-up on score thresholds shrinks the spawn interval with a floor (D-4)', () => {
   it('increments the level exactly once when score just reaches the current threshold, and shrinks the interval by one decay step', () => {
     const world = makeWorld({
-      session: { hp: 3, maxHp: 3, mana: 0, score: BALANCE.progression.levelUpScoreStep, level: 1, status: 'playing' },
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: 0,
+        score: BALANCE.progression.levelUpScoreStep,
+        level: 1,
+        status: 'playing',
+      },
       spawner: { intervalRemainSec: 1.2, currentIntervalSec: BALANCE.spawn.initialIntervalSec },
     });
     applyProgression(world);
     expect(world.session.level).toBe(2);
     expect(world.spawner.currentIntervalSec).toBeCloseTo(
-      Math.max(BALANCE.spawn.minIntervalSec, BALANCE.spawn.initialIntervalSec - BALANCE.spawn.intervalDecayPerLevel),
+      Math.max(
+        BALANCE.spawn.minIntervalSec,
+        BALANCE.spawn.initialIntervalSec - BALANCE.spawn.intervalDecayPerLevel,
+      ),
       5,
     );
   });
@@ -96,13 +127,17 @@ describe('applyProgression — level-up on score thresholds shrinks the spawn in
 
 describe('applyProgression — game-over transition (D-6)', () => {
   it('sets status to gameover once hp reaches 0', () => {
-    const world = makeWorld({ session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' } });
+    const world = makeWorld({
+      session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+    });
     applyProgression(world);
     expect(world.session.status).toBe('gameover');
   });
 
   it('leaves status as playing while hp remains positive', () => {
-    const world = makeWorld({ session: { hp: 1, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' } });
+    const world = makeWorld({
+      session: { hp: 1, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+    });
     applyProgression(world);
     expect(world.session.status).toBe('playing');
   });

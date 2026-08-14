@@ -49,14 +49,21 @@ describe('spawnTick — spawn safety (INV-SPAWN-1, D-4/D-5)', () => {
     spawnTick(world, DT, createRng(3));
     const spawned = world.enemies[0];
     expect(spawned.y).toBeGreaterThanOrEqual(BALANCE.spawn.marginY);
-    expect(spawned.y).toBeLessThanOrEqual(world.bounds.height - spawned.height - BALANCE.spawn.marginY);
+    expect(spawned.y).toBeLessThanOrEqual(
+      world.bounds.height - spawned.height - BALANCE.spawn.marginY,
+    );
   });
 });
 
 describe('spawnTick — entity cap (§6.10 performance budget)', () => {
   it('silently skips spawning (but still resets the timer) once maxEnemies is reached', () => {
-    const full = Array.from({ length: BALANCE.limits.maxEnemies }, (_unused, i) => makeEnemy({ id: i }));
-    const world = makeWorld({ enemies: full, spawner: { intervalRemainSec: 0, currentIntervalSec: 1.2 } });
+    const full = Array.from({ length: BALANCE.limits.maxEnemies }, (_unused, i) =>
+      makeEnemy({ id: i }),
+    );
+    const world = makeWorld({
+      enemies: full,
+      spawner: { intervalRemainSec: 0, currentIntervalSec: 1.2 },
+    });
     spawnTick(world, DT, createRng(1));
     expect(world.enemies).toHaveLength(BALANCE.limits.maxEnemies);
     expect(world.spawner.intervalRemainSec).toBeCloseTo(1.2, 5);

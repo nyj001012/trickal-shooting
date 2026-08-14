@@ -2,7 +2,13 @@
 import { describe, expect, it } from 'vitest';
 import { applyMovement } from '@/game/systems/movement';
 import { BALANCE } from '@/game/balance';
-import { makeEnemy, makeInputState, makePlayer, makeProjectile, makeWorld } from '../helpers/fixtures';
+import {
+  makeEnemy,
+  makeInputState,
+  makePlayer,
+  makeProjectile,
+  makeWorld,
+} from '../helpers/fixtures';
 import type { InputState } from '@/contracts';
 
 const DT = BALANCE.loop.FIXED_STEP_MS / 1000;
@@ -57,7 +63,10 @@ describe('applyMovement — player boundary clamp (INV-MOVE-2)', () => {
     const width = 32;
     const height = 32;
 
-    const beyondRight = makeWorld({ bounds, player: makePlayer({ x: 900, y: 300, width, height }) });
+    const beyondRight = makeWorld({
+      bounds,
+      player: makePlayer({ x: 900, y: 300, width, height }),
+    });
     applyMovement(beyondRight, makeInputState(), DT);
     expect(beyondRight.player.x).toBe(bounds.width - width);
 
@@ -65,7 +74,10 @@ describe('applyMovement — player boundary clamp (INV-MOVE-2)', () => {
     applyMovement(beyondLeft, makeInputState(), DT);
     expect(beyondLeft.player.x).toBe(0);
 
-    const beyondBottom = makeWorld({ bounds, player: makePlayer({ x: 400, y: 900, width, height }) });
+    const beyondBottom = makeWorld({
+      bounds,
+      player: makePlayer({ x: 400, y: 900, width, height }),
+    });
     applyMovement(beyondBottom, makeInputState(), DT);
     expect(beyondBottom.player.y).toBe(bounds.height - height);
 
@@ -103,7 +115,10 @@ describe('applyMovement — enemies move left and escape damage is independent o
 
   it('marks an enemy dead and reduces HP by escapeDamage once its right edge crosses the left screen edge', () => {
     const escaping = makeEnemy({ x: -1000, width: 28 }); // already far past the left edge
-    const world = makeWorld({ enemies: [escaping], session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' } });
+    const world = makeWorld({
+      enemies: [escaping],
+      session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+    });
     applyMovement(world, makeInputState(), DT);
     expect(world.enemies[0].alive).toBe(false);
     expect(world.session.hp).toBe(3 - BALANCE.enemy.escapeDamage);
@@ -122,7 +137,10 @@ describe('applyMovement — enemies move left and escape damage is independent o
 
   it('never lets HP from escape damage drop below 0', () => {
     const escaping = makeEnemy({ x: -1000, width: 28 });
-    const world = makeWorld({ enemies: [escaping], session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' } });
+    const world = makeWorld({
+      enemies: [escaping],
+      session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+    });
     applyMovement(world, makeInputState(), DT);
     expect(world.session.hp).toBe(0);
   });

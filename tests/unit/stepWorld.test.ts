@@ -10,14 +10,18 @@ const DT = BALANCE.loop.FIXED_STEP_MS / 1000;
 
 describe('stepWorld — no-op unless status is "playing" (D-6)', () => {
   it('does not mutate the world at all when status is gameover', () => {
-    const world = makeWorld({ session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'gameover' } });
+    const world = makeWorld({
+      session: { hp: 0, maxHp: 3, mana: 0, score: 0, level: 1, status: 'gameover' },
+    });
     const before = structuredClone(world);
     stepWorld(world, makeInputState({ right: true, fire: true }), DT, createRng(1));
     expect(world).toEqual(before);
   });
 
   it('does not mutate the world at all when status is error', () => {
-    const world = makeWorld({ session: { hp: 1, maxHp: 3, mana: 0, score: 0, level: 1, status: 'error' } });
+    const world = makeWorld({
+      session: { hp: 1, maxHp: 3, mana: 0, score: 0, level: 1, status: 'error' },
+    });
     const before = structuredClone(world);
     stepWorld(world, makeInputState({ right: true }), DT, createRng(1));
     expect(world).toEqual(before);
@@ -59,7 +63,14 @@ describe('stepWorld — escape damage and contact damage are independent mechani
     const bounds = { width: 800, height: 600 };
     const player = makePlayer({ x: 400, y: 300, width: 32, height: 32, invulnRemainSec: 0 });
     const escapingEnemy = makeEnemy({ id: 1, x: -1000, y: 0, width: 28, height: 28 });
-    const contactingEnemy = makeEnemy({ id: 2, x: 400, y: 300, width: 28, height: 28, contactDamage: 1 });
+    const contactingEnemy = makeEnemy({
+      id: 2,
+      x: 400,
+      y: 300,
+      width: 28,
+      height: 28,
+      contactDamage: 1,
+    });
     const world = makeWorld({
       bounds,
       player,
