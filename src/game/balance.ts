@@ -36,7 +36,7 @@ export const BALANCE = {
     /** percent */
     skillStartMana: 20,
     /** percent/sec */
-    manaRegenPerSec: 5,
+    manaRegenPerSec: 0.5,
     /** percent/sec */
     skillManaDrainPerSec: 30,
     /** sec */

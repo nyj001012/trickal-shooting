@@ -29,6 +29,20 @@ describe('fireWeapon — regular automatic fire (INV-FIRE-1)', () => {
     expect(world.player.regularFireCooldownRemainSec).toBe(BALANCE.player.regularFireCooldownSec);
   });
 
+  it('regenerates exactly 1 mana over two seconds at 0.5 percent per second', () => {
+    expect(BALANCE.player.manaRegenPerSec).toBe(0.5);
+    const world = makeWorld({
+      player: makePlayer({ regularFireCooldownRemainSec: 999 }),
+      session: { hp: 3, maxHp: 3, mana: 10, score: 0, level: 1, status: 'playing' },
+    });
+
+    for (let tick = 0; tick < 120; tick += 1) {
+      fireWeapon(world, makeInputState(), DT);
+    }
+
+    expect(world.session.mana).toBeCloseTo(11, 8);
+  });
+
   it('does not fire while the regular cooldown remains positive, but decrements both cooldowns', () => {
     const world = makeWorld({
       player: makePlayer({
