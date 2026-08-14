@@ -39,7 +39,7 @@ function toHudSnapshot(world: Readonly<GameWorld>): HudSnapshot {
   return {
     hp: world.session.hp,
     maxHp: world.session.maxHp,
-    mana: world.session.mana,
+    mana: Math.floor(world.session.mana),
     score: world.session.score,
     level: world.session.level,
     status: world.session.status,

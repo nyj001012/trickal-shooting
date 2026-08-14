@@ -1,5 +1,5 @@
 /**
- * Read-only overlap detection (design.md §6.4 — "판정 함수는 부수효과가 없어야 한다").
+ * Read-only overlap detection with independent regular/skill hit results.
  * @module @/game/systems/collision
  */
 import type {
@@ -8,7 +8,8 @@ import type {
   CollisionResult,
   DetectCollisions,
   PlayerContact,
-  ProjectileHit,
+  RegularProjectileHit,
+  SkillProjectileHit,
 } from '@/contracts';
 
 export const aabbOverlap: AabbOverlap = (a: Readonly<Box>, b: Readonly<Box>): boolean =>
@@ -16,13 +17,23 @@ export const aabbOverlap: AabbOverlap = (a: Readonly<Box>, b: Readonly<Box>): bo
 
 export const detectCollisions: DetectCollisions = (world): CollisionResult => {
   const aliveEnemies = world.enemies.filter((enemy) => enemy.alive);
-  const aliveProjectiles = world.projectiles.filter((projectile) => projectile.alive);
+  const regularProjectileHits: RegularProjectileHit[] = [];
+  const skillProjectileHits: SkillProjectileHit[] = [];
 
-  const projectileHits: ProjectileHit[] = [];
-  for (const projectile of aliveProjectiles) {
+  for (const projectile of world.regularProjectiles) {
+    if (!projectile.alive) continue;
     for (const enemy of aliveEnemies) {
       if (aabbOverlap(projectile, enemy)) {
-        projectileHits.push({ projectile, enemy });
+        regularProjectileHits.push({ projectile, enemy });
+      }
+    }
+  }
+
+  for (const projectile of world.skillProjectiles) {
+    if (!projectile.alive) continue;
+    for (const enemy of aliveEnemies) {
+      if (aabbOverlap(projectile, enemy)) {
+        skillProjectileHits.push({ projectile, enemy });
       }
     }
   }
@@ -36,5 +47,5 @@ export const detectCollisions: DetectCollisions = (world): CollisionResult => {
     }
   }
 
-  return { projectileHits, playerContacts };
+  return { regularProjectileHits, skillProjectileHits, playerContacts };
 };

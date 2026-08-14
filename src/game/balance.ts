@@ -30,17 +30,37 @@ export const BALANCE = {
     /** count */
     maxHp: 3,
     /** sec */
-    fireCooldownSec: 0.3,
+    regularFireCooldownSec: 0.3,
+    /** sec */
+    skillFireCooldownSec: 0.15,
+    /** percent */
+    skillStartMana: 20,
+    /** percent/sec */
+    manaRegenPerSec: 5,
+    /** percent/sec */
+    skillManaDrainPerSec: 30,
     /** sec */
     invulnSec: 1.0,
   },
-  projectile: {
+  regularProjectile: {
     /** px */
     width: 8,
     /** px */
     height: 4,
     /** px/sec */
     speed: 480,
+    /** count */
+    damage: 1,
+    /** sec */
+    lifetimeSec: 2.0,
+  },
+  skillProjectile: {
+    /** px */
+    width: 20,
+    /** px */
+    height: 20,
+    /** px/sec */
+    speed: 720,
     /** count */
     damage: 1,
     /** sec */
@@ -84,7 +104,9 @@ export const BALANCE = {
     /** count */
     maxEnemies: 40,
     /** count */
-    maxProjectiles: 60,
+    maxRegularProjectiles: 60,
+    /** count */
+    maxSkillProjectiles: 60,
   },
   loop: {
     /** ms */

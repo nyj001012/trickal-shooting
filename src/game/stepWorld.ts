@@ -19,7 +19,7 @@ export const stepWorld: StepWorld = (world, input, dt, rng): void => {
     return;
   }
 
-  fireWeapon(world, dt);
+  fireWeapon(world, input, dt);
   applyMovement(world, input, dt);
   spawnTick(world, dt, rng);
   const collisions = detectCollisions(world);
@@ -27,5 +27,6 @@ export const stepWorld: StepWorld = (world, input, dt, rng): void => {
   applyProgression(world);
 
   world.enemies = world.enemies.filter((enemy) => enemy.alive);
-  world.projectiles = world.projectiles.filter((projectile) => projectile.alive);
+  world.regularProjectiles = world.regularProjectiles.filter((projectile) => projectile.alive);
+  world.skillProjectiles = world.skillProjectiles.filter((projectile) => projectile.alive);
 };

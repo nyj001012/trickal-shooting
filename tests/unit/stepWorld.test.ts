@@ -53,19 +53,40 @@ describe('stepWorld — determinism (fixed step + seeded rng => reproducible res
     expect(worldA.session).toEqual(worldB.session);
     expect(worldA.player).toEqual(worldB.player);
     expect(worldA.enemies).toEqual(worldB.enemies);
-    expect(worldA.projectiles).toEqual(worldB.projectiles);
+    expect(worldA.regularProjectiles).toEqual(worldB.regularProjectiles);
+    expect(worldA.skillProjectiles).toEqual(worldB.skillProjectiles);
     expect(worldA.nextEntityId).toBe(worldB.nextEntityId);
   });
 });
 
 describe('stepWorld — automatic player fire (D-2)', () => {
   it('creates a projectile on the first playing tick without a fire input', () => {
-    const world = makeWorld({ player: makePlayer({ fireCooldownRemainSec: 0 }) });
+    const world = makeWorld({ player: makePlayer({ regularFireCooldownRemainSec: 0 }) });
 
     stepWorld(world, makeInputState(), DT, createRng(1));
 
-    expect(world.projectiles).toHaveLength(1);
-    expect(world.player.fireCooldownRemainSec).toBe(BALANCE.player.fireCooldownSec);
+    expect(world.regularProjectiles).toHaveLength(1);
+    expect(world.skillProjectiles).toHaveLength(0);
+    expect(world.player.regularFireCooldownRemainSec).toBe(BALANCE.player.regularFireCooldownSec);
+  });
+
+  it('routes a Space tick exclusively through the skill-projectile path', () => {
+    const world = makeWorld({
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: BALANCE.player.skillStartMana,
+        score: 0,
+        level: 1,
+        status: 'playing',
+      },
+    });
+
+    stepWorld(world, makeInputState({ skill: true }), DT, createRng(1));
+
+    expect(world.regularProjectiles).toHaveLength(0);
+    expect(world.skillProjectiles).toHaveLength(1);
+    expect(world.session.mana).toBeLessThan(BALANCE.player.skillStartMana);
   });
 });
 
@@ -77,7 +98,7 @@ describe('stepWorld — enemy escape has no session side effects (INV-ESCAPE-1)'
       y: 300,
       width: 32,
       height: 32,
-      fireCooldownRemainSec: 1,
+      regularFireCooldownRemainSec: 1,
       invulnRemainSec: 0,
     });
     const escapingEnemy = makeEnemy({ id: 1, x: -1000, y: 0, width: 28, height: 28 });

@@ -20,6 +20,7 @@ const CODE_TO_FIELD: Readonly<Record<string, keyof InputState>> = {
   KeyA: 'left',
   ArrowRight: 'right',
   KeyD: 'right',
+  Space: 'skill',
   KeyR: 'restart',
 };
 

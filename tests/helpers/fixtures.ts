@@ -14,7 +14,8 @@ import type {
   GameWorld,
   InputState,
   Player,
-  Projectile,
+  RegularProjectile,
+  SkillProjectile,
   SpawnerState,
 } from '@/contracts';
 
@@ -26,6 +27,7 @@ export function makeInputState(overrides: Partial<InputState> = {}): InputState 
     down: false,
     left: false,
     right: false,
+    skill: false,
     restart: false,
     ...overrides,
   };
@@ -40,7 +42,9 @@ export function makePlayer(overrides: Partial<Player> = {}): Player {
     width: 32,
     height: 32,
     alive: true,
-    fireCooldownRemainSec: 0,
+    regularFireCooldownRemainSec: 0,
+    skillFireCooldownRemainSec: 0,
+    isSkillFiring: false,
     invulnRemainSec: 0,
     ...overrides,
   };
@@ -63,10 +67,12 @@ export function makeEnemy(overrides: Partial<Enemy> = {}): Enemy {
   };
 }
 
-export function makeProjectile(overrides: Partial<Projectile> = {}): Projectile {
+export function makeRegularProjectile(
+  overrides: Partial<RegularProjectile> = {},
+): RegularProjectile {
   return {
     id: 2,
-    kind: 'projectile',
+    kind: 'regularProjectile',
     x: 100,
     y: 300,
     width: 8,
@@ -74,6 +80,23 @@ export function makeProjectile(overrides: Partial<Projectile> = {}): Projectile 
     alive: true,
     damage: 1,
     lifetimeRemainSec: 2,
+    ...overrides,
+  };
+}
+
+export function makeSkillProjectile(overrides: Partial<SkillProjectile> = {}): SkillProjectile {
+  return {
+    id: 3,
+    kind: 'skillProjectile',
+    x: 100,
+    y: 300,
+    width: 20,
+    height: 20,
+    alive: true,
+    damage: 1,
+    lifetimeRemainSec: 2,
+    vx: 720,
+    vy: 0,
     ...overrides,
   };
 }
@@ -103,7 +126,8 @@ export function makeWorld(overrides: Partial<GameWorld> = {}): GameWorld {
     bounds: DEFAULT_BOUNDS,
     player: makePlayer(),
     enemies: [],
-    projectiles: [],
+    regularProjectiles: [],
+    skillProjectiles: [],
     session: makeSession(),
     spawner: makeSpawner(),
     nextEntityId: 100,

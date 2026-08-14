@@ -55,7 +55,7 @@ describe('GameBoard — keyboard input (ui-contracts.md §2) does not crash the 
     expect(screen.getByTestId('hud-hp')).toHaveTextContent(/^♥ \d+ \/ \d+$/);
   });
 
-  it('does not track or prevent the obsolete Space fire key', () => {
+  it('tracks and prevents Space as the skill-fire key', () => {
     render(<GameBoard />);
     const event = new KeyboardEvent('keydown', { code: 'Space', cancelable: true });
 
@@ -63,7 +63,7 @@ describe('GameBoard — keyboard input (ui-contracts.md §2) does not crash the 
       window.dispatchEvent(event);
     });
 
-    expect(event.defaultPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
   });
 });
 
@@ -107,6 +107,22 @@ describe('GameBoard — game-over overlay (D-6, ui-contracts.md §3) via the E2E
     const snapshot = window.__TRICKAL_TEST__?.getSnapshot();
     expect(snapshot?.score).toBeGreaterThan(0);
     expect(snapshot?.mana).toBeGreaterThan(0);
+  });
+
+  it('publishes fractional internal mana as a floored integer HUD value', async () => {
+    window.history.pushState({}, '', '/?e2e=1');
+    render(<GameBoard />);
+
+    await waitFor(() => {
+      expect(window.__TRICKAL_TEST__).toBeDefined();
+    });
+
+    act(() => {
+      window.__TRICKAL_TEST__?.stepFrames(1);
+    });
+
+    expect(window.__TRICKAL_TEST__?.getSnapshot().mana).toBe(0);
+    expect(screen.getByTestId('hud-mana')).toHaveTextContent('MANA: 0%');
   });
 
   it('shows the fixed "GAME OVER" / "Press R to Restart" text after direct enemy contacts deplete HP', async () => {
