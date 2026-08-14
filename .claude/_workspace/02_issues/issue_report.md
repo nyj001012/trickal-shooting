@@ -280,8 +280,18 @@
 
 ## 완료 조건
 
-- [ ] `player.manaRegenPerSec`를 `0.5` percent/sec로 조정
-- [ ] 일반 상태 전용 회복과 기존 처치 보상·스킬 소모·임계값·포화 규칙 유지
-- [ ] lint, typecheck, unit/component test, coverage, format, build 통과
-- [ ] 자연 회복 속도와 스킬 전환 Chromium E2E 통과
-- [ ] 작업 브랜치 Push 및 이슈 #13을 연결한 PR 생성
+- [x] `player.manaRegenPerSec`를 `0.5` percent/sec로 조정
+- [x] 일반 상태 전용 회복과 기존 처치 보상·스킬 소모·임계값·포화 규칙 유지
+- [x] lint, typecheck, unit/component test, coverage, format, build 통과
+- [x] 자연 회복 속도와 스킬 전환 Chromium E2E 통과
+- [x] 작업 브랜치 Push 및 이슈 #13을 연결한 PR 생성
+
+## 생성된 PR
+
+| 항목 | 값 |
+| --- | --- |
+| PR 번호 | #14 |
+| URL | https://github.com/nyj001012/trickal-shooting/pull/14 |
+| 기준/작업 브랜치 | `main` ← `balance/13-slower-mana-regen` |
+| 상태 | Open, MERGEABLE |
+| CI | 등록된 원격 체크 없음(`statusCheckRollup: []`) |
