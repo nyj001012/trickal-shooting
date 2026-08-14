@@ -28,7 +28,7 @@ async function installSkillProjectileCanvasTrace(page: Page): Promise<void> {
     canvas.dataset.skillTrace = '';
     const originalFillRect = ctx.fillRect.bind(ctx);
     ctx.fillRect = (x: number, y: number, width: number, height: number): void => {
-      const fillStyle = String(ctx.fillStyle).toLowerCase();
+      const fillStyle = typeof ctx.fillStyle === 'string' ? ctx.fillStyle.toLowerCase() : '';
       if (fillStyle === '#222222' && x === 0 && y === 0 && width === 800 && height === 600) {
         frame += 1;
       } else if (fillStyle === '#00ffff') {
