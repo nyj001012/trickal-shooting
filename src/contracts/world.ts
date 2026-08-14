@@ -55,8 +55,6 @@ export interface InputState {
   down: boolean;
   left: boolean;
   right: boolean;
-  /** true while the fire key is held down (auto-repeats subject to cooldown, D-2). */
-  fire: boolean;
   /** true on the tick the restart key is pressed; only acted on while status === 'gameover'. */
   restart: boolean;
 }

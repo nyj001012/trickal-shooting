@@ -28,7 +28,7 @@ export interface PlayerBalance {
   readonly speed: number;
   /** count; starting and maximum HP. */
   readonly maxHp: number;
-  /** sec; minimum time between two shots (D-2). */
+  /** sec; automatic-fire interval between two shots (D-2). */
   readonly fireCooldownSec: number;
   /** sec; invulnerability window granted after a contact hit (INV-DMG-1). */
   readonly invulnSec: number;

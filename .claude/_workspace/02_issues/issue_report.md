@@ -168,3 +168,36 @@
 | URL | https://github.com/nyj001012/trickal-shooting/pull/8 |
 | 기준/작업 브랜치 | `main` ← `fix/7-enemy-escape-no-damage` |
 | 상태 | Open |
+
+---
+
+# Issue PM 산출 보고서 — Task #9
+
+- **작성:** Codex (run-pipeline)
+- **일시:** 2026-08-14
+- **플랫폼:** GitHub
+
+## 생성된 이슈
+
+| 항목 | 값 |
+| --- | --- |
+| 이슈 번호 | #9 |
+| URL | https://github.com/nyj001012/trickal-shooting/issues/9 |
+| 제목 | `[Gameplay] 플레이어 투사체 자동 발사` |
+| 상태 | Open |
+
+## 파생된 브랜치
+
+| 항목 | 값 |
+| --- | --- |
+| 브랜치명 | `feature/9-player-auto-fire` |
+| 파생 기준 | 최신 `origin/main` (`a6983a2`) |
+
+## 완료 조건
+
+- [ ] Space 입력 없이 첫 플레이 틱과 0.3초 쿨다운마다 자동 발사
+- [ ] 투사체 최대 개수 제한과 기존 이동·충돌·SCORE·MANA 회귀 통과
+- [ ] `InputState.fire`와 Space 키 바인딩 및 오래된 안내 제거
+- [ ] 키 입력 없는 적 처치 Chromium E2E 통과
+- [ ] lint, typecheck, coverage, format, build 통과
+- [ ] 작업 브랜치 Push 및 이슈 #9를 연결한 PR 생성
