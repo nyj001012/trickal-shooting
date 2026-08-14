@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createRef } from 'react';
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { GameCanvas } from '@/ui/GameCanvas';
@@ -12,5 +13,13 @@ describe('GameCanvas — canvas element, testid, and accessible label (ui-contra
     const canvas = screen.getByTestId('game-canvas');
     expect(canvas.tagName).toBe('CANVAS');
     expect(canvas).toHaveAttribute('aria-label', '슈팅 게임 화면');
+  });
+
+  it('leaves the responsive display size to CSS instead of writing fixed inline pixels', () => {
+    const ref = createRef<HTMLCanvasElement>();
+    render(<GameCanvas ref={ref} widthPx={800} heightPx={600} ariaLabel="슈팅 게임 화면" />);
+
+    expect(ref.current?.style.width).toBe('');
+    expect(ref.current?.style.height).toBe('');
   });
 });

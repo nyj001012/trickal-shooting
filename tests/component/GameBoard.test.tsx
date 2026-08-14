@@ -24,6 +24,7 @@ describe('GameBoard — initial render (design.md §6.1, ui-contracts.md §1)', 
     expect(screen.getByTestId('hud-score')).toHaveTextContent('SCORE: 0');
     expect(screen.getByTestId('hud-level')).toHaveTextContent('LV. 1');
     expect(screen.queryByTestId('game-over')).not.toBeInTheDocument();
+    expect(screen.getByTestId('game-board')).toBeInTheDocument();
     expect(screen.getByTestId('game-canvas')).toBeInTheDocument();
   });
 });
