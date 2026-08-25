@@ -19,6 +19,7 @@
 | `@/game/systems/collision` | `detectCollisions` | `DetectCollisions` | `pure` | `node` |
 | `@/game/systems/movement` | `applyMovement` | `ApplyMovement` | `mutates-arg(world)` | `node` |
 | `@/game/systems/weapon` | `fireWeapon` | `FireWeapon` | `mutates-arg(world)`, 실제 스킬탄 생성 시 주입 `Rng` 1회 소비 | `node` |
+| `@/game/systems/enemyWeapon` | `fireEnemyProjectiles` | `FireEnemyProjectiles` | `mutates-arg(world)`, 실제로 발사하는 적마다 주입 `Rng` 1회씩 소비 (issue #17) | `node` |
 | `@/game/systems/spawner` | `spawnTick` | `SpawnTick` | `mutates-arg(world)` | `node` |
 | `@/game/systems/combat` | `applyCombat` | `ApplyCombat` | `mutates-arg(world)` | `node` |
 | `@/game/systems/progression` | `applyProgression` | `ApplyProgression` | `mutates-arg(world)` | `node` |
@@ -29,7 +30,9 @@
 | `@/game/hudStore` | `hudStore` | `HudStore` | `impure(모듈 싱글턴 상태)` | `node` |
 | `@/game/balance` | `BALANCE` | `BalanceConfig`(값, `as const satisfies`) | `pure`(상수) | `node` |
 
-**QA 참고:** 위 표의 모든 항목은 DOM 없이 `environment: node`에서 직접 `import`해 호출할 수 있어야 한다(§6.0 규칙 4 — 이것이 이번 설계의 존재 이유). 픽스처(예: `Enemy`/`RegularProjectile`/`SkillProjectile` 리터럴, 고정 시드 `Rng`)는 `tests/helpers/**`에 타입 붙은 빌더로 작성한다.
+**QA 참고:** 위 표의 모든 항목은 DOM 없이 `environment: node`에서 직접 `import`해 호출할 수 있어야 한다(§6.0 규칙 4 — 이것이 이번 설계의 존재 이유). 픽스처(예: `Enemy`/`RegularProjectile`/`SkillProjectile`/`EnemyProjectile` 리터럴, 고정 시드 `Rng`)는 `tests/helpers/**`에 타입 붙은 빌더로 작성한다.
+
+**`enemyWeapon.ts` 파일 분리 결정(issue #17):** 기존 `spawner.ts`(적 생성)에 합치지 않고 별도 파일로 분리했다 — `spawner.ts`는 "적을 언제/어디에 만들 것인가"만 책임지고, `enemyWeapon.ts`는 "이미 존재하는 적이 언제/어느 방향으로 투사체를 쏘는가"를 책임진다. 플레이어 쪽의 `weapon.ts`(발사) / `spawner.ts`(적 생성)가 이미 분리되어 있는 것과 대칭을 이루며, 각 파일이 단일 책임을 유지한다.
 
 ---
 

@@ -72,6 +72,22 @@ export interface Enemy extends EntityBase {
    * Captured from BalanceConfig at spawn time.
    */
   readonly contactDamage: number;
+  /**
+   * px/sec; magnitude of velocity given to every EnemyProjectile this enemy fires.
+   * Computed once from `BalanceConfig.enemyProjectile` and `world.session.level` AT THE
+   * MOMENT THIS ENEMY SPAWNS, then frozen for this enemy's entire lifetime (issue #17
+   * requirement 1; INV-EPROJ-1). A later level-up never changes this value, nor the
+   * `vx`/`vy` of any EnemyProjectile this enemy has already fired.
+   */
+  readonly projSpeed: number;
+  /**
+   * sec; remaining cooldown before this enemy may fire another EnemyProjectile. 0 means
+   * ready. Unlike `projSpeed`, the interval used to reset this cooldown is recomputed
+   * from the CURRENT `world.session.level` every time it resets — only the projectile's
+   * speed is a frozen per-enemy snapshot, not the firing interval (issue #17
+   * requirement 2; INV-EPROJ-2).
+   */
+  projFireCooldownRemainSec: number;
 }
 
 /** A regular projectile. It always travels in +x and can grant mana on an enemy kill. */
@@ -108,10 +124,40 @@ export interface SkillProjectile extends EntityBase {
 }
 
 /**
+ * A projectile fired by an enemy in one of the 8 fixed compass directions
+ * (0/45/90/135/180/225/270/315 deg). Unlike SkillProjectile, its velocity is derived once
+ * at spawn time from the firing enemy's frozen `projSpeed` snapshot and never changes
+ * afterward — there is no homing/steering for this kind (issue #17 requirement 1/5).
+ */
+export interface EnemyProjectile extends EntityBase {
+  readonly kind: 'enemyProjectile';
+  /**
+   * px/sec; horizontal velocity component. Fixed for this projectile's entire lifetime —
+   * set once, at creation, to (chosen 8-direction unit vector).x * (firing enemy's
+   * `projSpeed`). Never re-derived or steered afterward (contrast with
+   * `SkillProjectile.vx`, which is re-steered every tick by `applyMovement`).
+   */
+  readonly vx: number;
+  /** px/sec; vertical velocity component, fixed for the same reason as `vx` above. */
+  readonly vy: number;
+  /**
+   * count; HP damage dealt to the player on hit. Captured from
+   * `BalanceConfig.enemyProjectile` at the moment this projectile is created (not derived
+   * from the firing enemy), so it is independent of any per-enemy snapshot logic.
+   */
+  readonly damage: number;
+  /**
+   * sec; remaining lifetime before automatic expiry — a safety net in case a projectile's
+   * direction never carries it off any of the 4 playfield edges (INV-EPROJ-3).
+   */
+  lifetimeRemainSec: number;
+}
+
+/**
  * Discriminated union over `kind`. Use this (not Box) whenever code must branch on entity
  * kind — the `switch` must be exhaustive (§6.3 / §6.5.4, `switch-exhaustiveness-check`).
  */
-export type Entity = Player | Enemy | RegularProjectile | SkillProjectile;
+export type Entity = Player | Enemy | RegularProjectile | SkillProjectile | EnemyProjectile;
 
 /** Derived, never hand-duplicated (§6.5.4). */
 export type EntityKind = Entity['kind'];

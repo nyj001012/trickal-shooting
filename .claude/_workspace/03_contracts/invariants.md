@@ -12,25 +12,28 @@
 `src/game/stepWorld.ts`의 `stepWorld: StepWorld`는 `world.session.status !== 'playing'`이면 **아무 것도 하지 않고 즉시 반환**한다. `'playing'`일 때만 아래 순서를 **정확히** 이 순서로 1회씩 실행한다. 순서를 바꾸려면 계약 개정을 거친다(§6.4).
 
 ```
-1. fireWeapon(world, input, dt, rng)   // game/systems/weapon.ts
-2. applyMovement(world, input, dt)     // game/systems/movement.ts
-3. spawnTick(world, dt, rng)           // game/systems/spawner.ts
-4. const collisions = detectCollisions(world)   // game/systems/collision.ts (읽기 전용)
-5. applyCombat(world, collisions, dt)  // game/systems/combat.ts
-6. applyProgression(world)             // game/systems/progression.ts
-7. prune dead entities:                // stepWorld.ts 내부(비공개 헬퍼, 별도 계약 타입 없음)
+1. fireWeapon(world, input, dt, rng)          // game/systems/weapon.ts
+2. fireEnemyProjectiles(world, dt, rng)       // game/systems/enemyWeapon.ts  ★issue #17 신설
+3. applyMovement(world, input, dt)            // game/systems/movement.ts
+4. spawnTick(world, dt, rng)                  // game/systems/spawner.ts
+5. const collisions = detectCollisions(world) // game/systems/collision.ts (읽기 전용)
+6. applyCombat(world, collisions, dt)         // game/systems/combat.ts
+7. applyProgression(world)                    // game/systems/progression.ts
+8. prune dead entities:                       // stepWorld.ts 내부(비공개 헬퍼, 별도 계약 타입 없음)
    world.enemies = world.enemies.filter(e => e.alive)
    world.regularProjectiles = world.regularProjectiles.filter(p => p.alive)
    world.skillProjectiles = world.skillProjectiles.filter(p => p.alive)
+   world.enemyProjectiles = world.enemyProjectiles.filter(p => p.alive)
 ```
 
 **근거 및 주의사항**
-- 1(발사)이 2(이동)보다 먼저인 이유: 발사는 "이번 틱 이동 전" 플레이어 위치에서 투사체를 생성해도 무방하지만(허용 오차 범위, 그레이박스 단계), 이동 시스템이 투사체의 +x 이동까지 담당하므로 **발사가 먼저 실행되어야 방금 생성된 투사체도 같은 틱에 1회 전진**한다.
-- 4(충돌 판정)는 **2와 3 다음**에 실행한다 — 이동·스폰이 끝난 "이번 틱의 최종 위치" 기준으로 겹침을 판정해야 겹침 판정이 프레임 지연 없이 정확하다.
-- 6(진행도)이 5(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·MANA 포화·게임오버 전이를 같은 틱 안에 반영한다.
-- **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~6 사이에서는 `alive` 플래그만 뒤집는다.
-- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태다. 이동 시스템은 방향 입력을, 무기 시스템은 `skill` 입력을 읽는다. 일반탄은 스킬 비활성 상태에서 자동 발사한다.
-- 하나의 주입형 `rng` 스트림을 1과 3이 순서대로 공유한다. 1은 실제 스킬탄이 배열에 추가되는 틱에만 정확히 1회 소비하고, 3은 실제 적 스폰에 필요한 난수를 소비한다. 같은 초기 월드·입력·시드·틱 수는 동일한 발사 확산과 스폰을 재현한다.
+- 1(플레이어 발사)이 3(이동)보다 먼저인 이유: 발사는 "이번 틱 이동 전" 플레이어 위치에서 투사체를 생성해도 무방하지만(허용 오차 범위, 그레이박스 단계), 이동 시스템이 투사체의 전진까지 담당하므로 **발사가 먼저 실행되어야 방금 생성된 투사체도 같은 틱에 1회 전진**한다.
+- 2(적 발사)를 1 바로 다음, 3(이동) 이전에 두는 이유는 동일하다 — 방금 생성된 `EnemyProjectile`도 같은 틱에 이동 시스템의 4방향 이탈 검사를 1회 거치게 하기 위함이다(issue #17). 2가 1보다 뒤인 이유는 특별한 의존성 때문이 아니라 "플레이어 행동 → 적 행동" 순서를 관례로 유지하기 위함이며, `rng` 소비 순서에만 영향을 준다(아래 참고).
+- 5(충돌 판정)는 **3과 4 다음**에 실행한다 — 이동·스폰이 끝난 "이번 틱의 최종 위치" 기준으로 겹침을 판정해야 겹침 판정이 프레임 지연 없이 정확하다.
+- 7(진행도)이 6(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·MANA 포화·게임오버 전이를 같은 틱 안에 반영한다.
+- **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~7 사이에서는 `alive` 플래그만 뒤집는다.
+- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태다. 이동 시스템은 방향 입력을, 무기 시스템은 `skill` 입력을 읽는다. 일반탄은 스킬 비활성 상태에서 자동 발사한다. `fireEnemyProjectiles`는 `InputState`를 전혀 참조하지 않는다(적 발사는 플레이어 입력과 무관).
+- 하나의 주입형 `rng` 스트림을 1, 2, 4가 순서대로 공유한다. 1은 실제 스킬탄이 배열에 추가되는 틱에만 정확히 1회 소비하고, 2는 그 틱에 실제로 발사하는 각 살아있는 적마다(`world.enemies` 배열 순서로) 방향 선택에 정확히 1회씩 소비하며, 4는 실제 적 스폰에 필요한 난수를 소비한다. 같은 초기 월드·입력·시드·틱 수는 동일한 발사 확산·적 발사 방향·스폰을 재현한다.
 - `dt`는 항상 고정 스텝(`BalanceConfig.loop.FIXED_STEP_MS / 1000`)이며, 가변 프레임 델타를 그대로 넘기지 않는다(§6.2 누산기 패턴은 `hooks/useGameLoop.ts` 책임).
 
 ---
@@ -60,6 +63,7 @@ overlap(a, b) =
 이 판정 규칙은 `detectCollisions`(및 그것이 내부적으로 호출하는 `aabbOverlap`)의 **모든 호출 지점에 예외 없이 동일하게** 적용된다. 구체적으로:
 - **투사체-적 명중(`RegularProjectileHit`/`SkillProjectileHit`):** 어느 탄종이든 선단과 적 AABB가 한 프레임에 정확히 모서리만 맞닿은 경우에는 명중으로 취급하지 않는다. `detectCollisions`는 탄종별 결과 배열을 독립적으로 만들며 `applyCombat`은 경계 판정을 다시 하지 않는다.
 - **플레이어-적 접촉(`PlayerContact`):** 마찬가지로 모서리만 스치듯 맞닿은 프레임에는 접촉 피해가 발생하지 않는다. 즉 **"스치듯 맞닿은 프레임에는 피해가 발생하지 않는다"**는 것은 이번 단계의 의도된 게임플레이 귀결이며, 버그가 아니다.
+- **적 투사체-플레이어 충돌(`EnemyProjectileHit`, issue #17):** 동일한 엄격 부등식이 `world.enemyProjectiles`와 `world.player` 사이에도 그대로 적용된다. 모서리만 맞닿은 프레임에는 히트로 잡히지 않는다.
 - 결론적으로 `combat.ts`는 이 규칙을 스스로 재구현하거나 재확인하지 않는다 — `detectCollisions`가 이미 엄격 부등식으로 걸러낸 쌍만 넘겨주므로, `applyCombat`은 넘어온 모든 쌍을 무조건 "겹침"으로 신뢰하고 처리한다.
 
 ### 테스트 관점 (`frontend-qa` 참고)
@@ -166,8 +170,70 @@ if (Number.isFinite(steeredSpeed) && steeredSpeed > Number.EPSILON) {
 - 무적 시간 중 도착한 접촉(`PlayerContact`)은 **HP는 감소시키지 않지만 해당 적은 제거**한다(플레이어와 겹친 적이 무적 시간 동안 화면에 계속 남아 다시 겹치는 것을 방지). 무적 시간 갱신(재시작)은 실제로 HP가 감소한 접촉이 발생했을 때만 일어난다.
 - 무적 시간은 매 틱 `-= dt`로 감소하며(`Math.max(0, ...)`), 이 감소는 `applyCombat` 맨 처음 단계에서 수행한다(§1의 순서 참고).
 
+### INV-EPROJ-1 — 적 투사체 속도는 스폰 시점 스냅샷, 레벨업에 불변 (issue #17 요구사항 1/5)
+
+`spawnTick`이 적을 생성하는 바로 그 순간의 `world.session.level`을 사용해 다음 공식으로 `projSpeed`를 계산하고, 그 값을 해당 `Enemy.readonly projSpeed`에 저장한다.
+```
+projSpeed = clamp(
+  BalanceConfig.enemyProjectile.speedBase
+    + BalanceConfig.enemyProjectile.speedPerLevel * (spawnLevel - 1),
+  BalanceConfig.enemyProjectile.speedBase,
+  BalanceConfig.enemyProjectile.speedMax,
+)
+```
+- 이후 `world.session.level`이 몇 번 올라가도, **이미 스폰된 Enemy의 `projSpeed`와 그 Enemy가 이미 발사한 모든 `EnemyProjectile`의 `vx`/`vy`는 변하지 않는다.** 새로 스폰되는 Enemy만 그 시점의 최신 레벨로 다시 계산된 `projSpeed`를 갖는다.
+- `EnemyProjectile.vx`/`vy`는 생성 시 정확히 한 번 `projSpeed * 방향단위벡터`로 정해지고, `applyMovement`는 이 값을 읽기만 할 뿐 재계산하거나 조향하지 않는다(대비: `SkillProjectile.vx/vy`는 매 틱 재조향됨, INV-HOMING-1).
+- 테스트 관점: 레벨 1에서 적 A를 스폰(그 순간 `A.projSpeed` 캡처) → 레벨을 인위적으로 올림(`world.session.level` 갱신) → 다시 `fireEnemyProjectiles` 실행 시 `A.projSpeed`와, `A`가 발사하는 새 `EnemyProjectile.vx/vy`의 크기가 레벨업 이전과 동일해야 한다. 반면 레벨업 후 새로 스폰된 적 B의 `projSpeed`는 A보다 커야 한다(단, `speedMax` 캡 이내).
+
+### INV-EPROJ-2 — 발사 주기는 매 리셋마다 현재 레벨 기준으로 재계산 (issue #17 요구사항 2)
+
+`Enemy.projFireCooldownRemainSec`가 0 이하로 떨어져 리셋될 때마다(스폰 직후 초기화 포함), 리셋값은 **스냅샷이 아니라 그 순간의 `world.session.level`로 매번 다시 계산**한다.
+```
+fireIntervalSec = max(
+  BalanceConfig.enemyProjectile.fireIntervalBase
+    - BalanceConfig.enemyProjectile.fireIntervalDecayPerLevel * (world.session.level - 1),
+  BalanceConfig.enemyProjectile.fireIntervalMinSec,
+)
+```
+- `INV-EPROJ-1`과의 유일한 차이점: **`projSpeed`는 스폰 시점에 얼어붙는 스냅샷**이지만, **발사 간격은 스냅샷이 아니라 리셋될 때마다 항상 최신 레벨을 반영**한다. 같은 Enemy라도 스폰 이후 레벨이 올라가면 다음 발사부터 더 짧은 간격으로 쏠 수 있다(단, 이미 날아가고 있는 `EnemyProjectile`의 속도에는 영향 없음).
+- 테스트 관점: 적 A를 스폰한 뒤 레벨을 올리고 `fireEnemyProjectiles`를 반복 호출하면, 리셋되는 `projFireCooldownRemainSec` 값이 레벨업 이전보다 짧아져야 한다(단, `fireIntervalMinSec` 하한 이내).
+
+### INV-EPROJ-3 — 적 투사체는 4방향 중 어느 쪽으로든 완전히 벗어나면 소멸 (issue #17 요구사항 3)
+
+매 틱 이동(`applyMovement` 5단계) 후, `EnemyProjectile`의 AABB가 `world.bounds`의 상/하/좌/우 중 **어느 한 변이라도 완전히 벗어나면** 그 틱에 `alive = false`로 표시한다.
+```
+offscreen =
+     enemyProjectile.x + width  < 0
+  || enemyProjectile.x          > world.bounds.width
+  || enemyProjectile.y + height < 0
+  || enemyProjectile.y          > world.bounds.height
+```
+- 기존 `RegularProjectile`(+x 고정 이동, 우측 이탈만 검사)과 달리, `EnemyProjectile`은 8방향 임의 이동이 가능하므로 **4변 전부**를 검사해야 한다.
+- `lifetimeRemainSec`가 0 이하가 되어도 동일하게 `alive = false`로 표시한다(안전망 — 이론상 대각선 방향이 화면 크기에 비해 매우 느리거나 특수한 경계 조건에서 화면 이탈이 지연되는 경우까지 상한을 보장, §6.10 성능 예산과 연동해 `limits.maxEnemyProjectiles`를 넘지 않게 한다).
+- 테스트 관점: 8방향(0/45/90/135/180/225/270/315도) 각각에 대해 화면 경계 바로 안쪽에서 생성한 투사체가 해당 방향으로 계속 이동해 결국 4변 중 하나를 통해 `alive = false`가 되는지 개별 검증한다.
+
+### INV-EPROJ-4 — 플레이어 피격은 접촉 피해와 동일한 무적 시간을 공유 (issue #17 요구사항 4, INV-DMG-1과의 관계)
+
+`EnemyProjectileHit`는 `PlayerContact`와 **동일한 `world.player.invulnRemainSec` 상태를 공유**한다(별도의 무적 타이머를 두지 않는다).
+- `applyCombat`의 실행 순서(§1, `applyCombat` 내부 소단계)상 `PlayerContact` 처리(소단계 4)가 `EnemyProjectileHit` 처리(소단계 5)보다 먼저 실행되므로, 같은 틱에 접촉과 적 투사체 피격이 동시에 발생해도 **HP 감소는 최대 1회**로 제한된다(둘 중 먼저 처리된 쪽만 무적을 소모/갱신하고, 나중 쪽은 이미 양수가 된 `invulnRemainSec`를 보고 HP를 깎지 않는다).
+- `EnemyProjectileHit`로 도착한 투사체는 **무적 시간과 무관하게 항상 `alive = false`로 소멸**한다(무적 중에도 화면에 남아 재충돌 판정을 반복하지 않도록, `PlayerContact`가 무적 중에도 해당 적을 제거하는 것과 동일한 패턴).
+- 무적 중이 아닐 때만(`invulnRemainSec <= 0`) `world.session.hp`를 그 투사체의 `damage`만큼 감소시키고(`floored at 0`) `world.player.invulnRemainSec`를 `BalanceConfig.player.invulnSec`로 리셋한다.
+- 이 규칙에 따라 `INV-DMG-1`("임의의 `invulnSec` 구간 안에서 접촉 피해로 인한 HP 감소는 최대 1")은 **접촉(enemy contact)과 적 투사체 피격을 합산한 HP 감소 소스 전체**로 확장 해석된다 — 이 문서가 그 확장을 공식 계약으로 고정한다.
+
 ### 부가 확인 사항 (불변식은 아니지만 리뷰·테스트 시 확인)
 - **투사체 방향:** 일반탄은 항상 `+x`로 직진한다. 스킬탄은 최초 획득한 살아 있는 적을 ID로 락온하고, 대상이 사라졌을 때만 최근접 적을 재획득한다. 중심 거리 150px 미만에서는 회전 계수를 0.3으로 높이고, 대상이 없을 때는 현재 관성을 유지한다. 최초·재획득 거리 제곱이 같으면 `enemies` 배열의 앞선 적을 선택한다.
+- **적 투사체 8방향 선택(issue #17, 결정적 rng 매핑):** `index = Math.floor(rng() * 8)`(이론상 `rng() === 1` 방지를 위해 7로 클램프)로 아래 고정 순서 테이블에서 방향 단위벡터를 고른다. 이 순서는 `src/contracts/systems.ts`의 `FireEnemyProjectiles` JSDoc과 정확히 동일하며, 순서를 바꾸면 계약 개정이 필요하다.
+  ```
+  0: (1, 0)              // 0deg
+  1: (1, 1)/sqrt(2)      // 45deg
+  2: (0, 1)              // 90deg
+  3: (-1, 1)/sqrt(2)     // 135deg
+  4: (-1, 0)             // 180deg
+  5: (-1, -1)/sqrt(2)    // 225deg
+  6: (0, -1)             // 270deg
+  7: (1, -1)/sqrt(2)     // 315deg
+  ```
+  방향 단위벡터에 발사한 적의 `projSpeed`를 곱해 `vx`/`vy`를 정한다(INV-EPROJ-1).
 - **적 방향:** 적은 생성 이후 방향을 바꾸지 않는다. 항상 `-x`로만 이동한다(D-5).
 - **재시작 게이팅(D-6):** `input.restart`는 `world.session.status === 'gameover'`일 때만 유효하다. 이 게이팅은 `stepWorld`가 아니라 **`hooks/useGameLoop.ts`(접착 계층)**가 담당한다 — `status`가 `'gameover'`가 되면 `stepWorld` 자체가 no-op이 되므로(§1), 재시작 로직(=`createWorld()` 재호출 + `hudStore.reset()`)은 게임 로직이 아니라 훅이 실행한다. `game/**`는 `createWorld()`를 호출할 뿐, "언제 재호출할지"는 판단하지 않는다.
 - **월드 재생성 시 상태 누수 금지(D-6):** 재시작은 `createWorld()`가 반환하는 **완전히 새로운 객체**로 `useRef.current`를 교체한다. 기존 `GameWorld`의 필드를 하나씩 리셋하지 않는다.
@@ -217,6 +283,16 @@ if (Number.isFinite(steeredSpeed) && steeredSpeed > Number.EPSILON) {
 | `enemy.scoreValue` | `10` | |
 | `enemy.manaGain` | `5` | percent |
 | `enemy.contactDamage` | `1` | |
+| `enemyProjectile.width` | `10` | px (issue #17) |
+| `enemyProjectile.height` | `10` | px |
+| `enemyProjectile.speedBase` | `150` | px/sec, 레벨 1 스폰 기준 (INV-EPROJ-1) |
+| `enemyProjectile.speedPerLevel` | `10` | px/sec, 레벨당 증가폭(스폰 시점 스냅샷에만 적용) |
+| `enemyProjectile.speedMax` | `300` | px/sec, 상한 |
+| `enemyProjectile.damage` | `1` | |
+| `enemyProjectile.lifetimeSec` | `3.0` | sec, 대각선 이동을 감안해 일반탄보다 여유 있게 |
+| `enemyProjectile.fireIntervalBase` | `2.0` | sec, 레벨 1 기준 (INV-EPROJ-2, 매 리셋마다 현재 레벨로 재계산) |
+| `enemyProjectile.fireIntervalDecayPerLevel` | `0.08` | sec, 레벨당 단축량 |
+| `enemyProjectile.fireIntervalMinSec` | `0.6` | sec, 하한 |
 | `spawn.initialIntervalSec` | `1.2` | sec |
 | `spawn.intervalDecayPerLevel` | `0.1` | sec |
 | `spawn.minIntervalSec` | `0.35` | sec (하한) |
@@ -227,6 +303,7 @@ if (Number.isFinite(steeredSpeed) && steeredSpeed > Number.EPSILON) {
 | `limits.maxEnemies` | `40` | §6.10 |
 | `limits.maxRegularProjectiles` | `60` | §6.10 |
 | `limits.maxSkillProjectiles` | `60` | §6.10 |
+| `limits.maxEnemyProjectiles` | `80` | §6.10 (issue #17) |
 | `loop.FIXED_STEP_MS` | `1000 / 60` (≈`16.6667`) | §6.2 **고정** |
 | `loop.MAX_FRAME_MS` | `250` | §6.2 **고정** |
 | `loop.MAX_SUBSTEPS` | `5` | §6.2 **고정** |
@@ -239,3 +316,9 @@ if (Number.isFinite(steeredSpeed) && steeredSpeed > Number.EPSILON) {
 - **명령(§4.2 Phase 2):** `npx tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
 - **결과:** 종료 코드 `0`, 출력 없음(에러 0건). 일반탄·스킬탄 엔티티/월드/시스템 계약과 `skill` 입력, MANA 포화 규칙 반영 후 독립 컴파일 통과.
 - **추가 정합성 검증:** 단일 투사체 배열·단일 충돌 결과·단일 발사 쿨다운·MANA 초기화·5필드 입력을 전제로 한 구식 참조 검색 결과 0건.
+
+### 5.1 issue #17 — 적 8방향 투사체 계약 개정 (2026-08-25)
+
+- **변경 파일:** `src/contracts/entities.ts`(`EnemyProjectile` 신설, `Enemy.projSpeed`/`Enemy.projFireCooldownRemainSec` 추가), `src/contracts/world.ts`(`GameWorld.enemyProjectiles` 추가), `src/contracts/systems.ts`(`EnemyProjectileHit`/`CollisionResult.enemyProjectileHits`/`FireEnemyProjectiles` 추가, `ApplyMovement`/`ApplyCombat`/`SpawnTick`/`StepWorld`/`CreateWorld` JSDoc 갱신), `src/contracts/balance.ts`(`EnemyProjectileBalance` 신설, `LimitsBalance.maxEnemyProjectiles` 추가).
+- **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `EnemyProjectile` 판별 유니온 추가, `Enemy`/`GameWorld`/`CollisionResult`/`BalanceConfig` 확장, 신규 `FireEnemyProjectiles` 함수 타입 반영 후 독립 컴파일 통과.
