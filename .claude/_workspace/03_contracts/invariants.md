@@ -16,10 +16,11 @@
 2. fireEnemyProjectiles(world, dt, rng)       // game/systems/enemyWeapon.ts  ★issue #17 신설
 3. applyMovement(world, input, dt)            // game/systems/movement.ts
 4. spawnTick(world, dt, rng)                  // game/systems/spawner.ts
-5. const collisions = detectCollisions(world) // game/systems/collision.ts (읽기 전용)
-6. applyCombat(world, collisions, dt)         // game/systems/combat.ts
-7. applyProgression(world)                    // game/systems/progression.ts
-8. prune dead entities:                       // stepWorld.ts 내부(비공개 헬퍼, 별도 계약 타입 없음)
+5. updateEnemyAi(world, dt, rng)              // game/systems/enemyAi.ts    ★issue #19 신설
+6. const collisions = detectCollisions(world) // game/systems/collision.ts (읽기 전용)
+7. applyCombat(world, collisions, dt)         // game/systems/combat.ts
+8. applyProgression(world)                    // game/systems/progression.ts
+9. prune dead entities:                       // stepWorld.ts 내부(비공개 헬퍼, 별도 계약 타입 없음)
    world.enemies = world.enemies.filter(e => e.alive)
    world.regularProjectiles = world.regularProjectiles.filter(p => p.alive)
    world.skillProjectiles = world.skillProjectiles.filter(p => p.alive)
@@ -29,11 +30,12 @@
 **근거 및 주의사항**
 - 1(플레이어 발사)이 3(이동)보다 먼저인 이유: 발사는 "이번 틱 이동 전" 플레이어 위치에서 투사체를 생성해도 무방하지만(허용 오차 범위, 그레이박스 단계), 이동 시스템이 투사체의 전진까지 담당하므로 **발사가 먼저 실행되어야 방금 생성된 투사체도 같은 틱에 1회 전진**한다.
 - 2(적 발사)를 1 바로 다음, 3(이동) 이전에 두는 이유는 동일하다 — 방금 생성된 `EnemyProjectile`도 같은 틱에 이동 시스템의 4방향 이탈 검사를 1회 거치게 하기 위함이다(issue #17). 2가 1보다 뒤인 이유는 특별한 의존성 때문이 아니라 "플레이어 행동 → 적 행동" 순서를 관례로 유지하기 위함이며, `rng` 소비 순서에만 영향을 준다(아래 참고).
-- 5(충돌 판정)는 **3과 4 다음**에 실행한다 — 이동·스폰이 끝난 "이번 틱의 최종 위치" 기준으로 겹침을 판정해야 겹침 판정이 프레임 지연 없이 정확하다.
-- 7(진행도)이 6(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·MANA 포화·게임오버 전이를 같은 틱 안에 반영한다.
-- **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~7 사이에서는 `alive` 플래그만 뒤집는다.
-- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태다. 이동 시스템은 방향 입력을, 무기 시스템은 `skill` 입력을 읽는다. 일반탄은 스킬 비활성 상태에서 자동 발사한다. `fireEnemyProjectiles`는 `InputState`를 전혀 참조하지 않는다(적 발사는 플레이어 입력과 무관).
-- 하나의 주입형 `rng` 스트림을 1, 2, 4가 순서대로 공유한다. 1은 실제 스킬탄이 배열에 추가되는 틱에만 정확히 1회 소비하고, 2는 그 틱에 실제로 발사하는 각 살아있는 적마다(`world.enemies` 배열 순서로) 방향 선택에 정확히 1회씩 소비하며, 4는 실제 적 스폰에 필요한 난수를 소비한다. 같은 초기 월드·입력·시드·틱 수는 동일한 발사 확산·적 발사 방향·스폰을 재현한다.
+- **5(적 행동 재선택, `updateEnemyAi`)를 4(스폰) 다음·6(충돌 판정) 이전에 두는 이유(issue #19):** `applyMovement`(3)는 매 틱 "그 시점까지 확정된" 행동 상태(`action`과 그 파생 필드)만 읽고 `rng`를 전혀 받지 않는 순수 위치 적분 함수로 유지해야 하므로(§6.0 규칙 1, `ApplyMovement` 시그니처 불변), 난수를 소비하는 "행동 재선택" 책임을 별도 시스템으로 분리했다. 이 시스템을 3(이동)보다 뒤에 두면 **막 스폰된 적**(4에서 생성, 자리표시자 `actionRemainSec = 0`)이 같은 틱에 즉시 첫 행동을 배정받아 "스폰 직후 즉시" 요구사항(INV-EAI-1)을 만족하면서도, 이동은 항상 "이전 틱에 확정된" 행동 상태만 사용해 같은 틱 안에서 읽기-직후-쓰기 경쟁이 생기지 않는다(자세한 데이터 흐름은 `ApplyMovement`/`UpdateEnemyAi`의 JSDoc, INV-EAI-1 참고). 6(충돌 판정)보다 앞에 두는 이유는 특별한 의존성 때문이 아니라 "이동/스폰 다음, 판정 이전"이라는 관례를 유지하기 위함이다.
+- 6(충돌 판정)은 **3과 4 다음**에 실행한다 — 이동·스폰이 끝난 "이번 틱의 최종 위치" 기준으로 겹침을 판정해야 겹침 판정이 프레임 지연 없이 정확하다. `updateEnemyAi`(5)는 위치를 바꾸지 않으므로(행동 상태만 갱신) 6의 판정 대상 좌표에 영향을 주지 않는다.
+- 8(진행도)이 7(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·MANA 포화·게임오버 전이를 같은 틱 안에 반영한다.
+- **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~8 사이에서는 `alive` 플래그만 뒤집는다.
+- **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태다. 이동 시스템은 방향 입력을, 무기 시스템은 `skill` 입력을 읽는다. 일반탄은 스킬 비활성 상태에서 자동 발사한다. `fireEnemyProjectiles`와 `updateEnemyAi`는 `InputState`를 전혀 참조하지 않는다(적 발사·적 행동 선택은 플레이어 입력과 무관).
+- 하나의 주입형 `rng` 스트림을 1, 2, 4, 5가 순서대로 공유한다. 1은 실제 스킬탄이 배열에 추가되는 틱에만 정확히 1회 소비하고, 2는 그 틱에 실제로 발사하는 각 살아있는 적마다(`world.enemies` 배열 순서로) 방향 선택에 정확히 1회씩 소비하며, 4는 실제 적 스폰에 필요한 난수를 소비하고, 5는 그 틱에 실제로 행동을 재선택하는 각 살아있는 적마다(`world.enemies` 배열 순서로) 정확히 2회(OSCILLATE) 또는 3회(DASH/CIRCLE) 소비한다(INV-EAI-1). 같은 초기 월드·입력·시드·틱 수는 동일한 발사 확산·적 발사 방향·스폰·적 행동 시퀀스를 재현한다.
 - `dt`는 항상 고정 스텝(`BalanceConfig.loop.FIXED_STEP_MS / 1000`)이며, 가변 프레임 델타를 그대로 넘기지 않는다(§6.2 누산기 패턴은 `hooks/useGameLoop.ts` 책임).
 
 ---
@@ -220,6 +222,80 @@ offscreen =
 - 무적 중이 아닐 때만(`invulnRemainSec <= 0`) `world.session.hp`를 그 투사체의 `damage`만큼 감소시키고(`floored at 0`) `world.player.invulnRemainSec`를 `BalanceConfig.player.invulnSec`로 리셋한다.
 - 이 규칙에 따라 `INV-DMG-1`("임의의 `invulnSec` 구간 안에서 접촉 피해로 인한 HP 감소는 최대 1")은 **접촉(enemy contact)과 적 투사체 피격을 합산한 HP 감소 소스 전체**로 확장 해석된다 — 이 문서가 그 확장을 공식 계약으로 고정한다.
 
+### INV-EAI-1 — 행동 재선택 타이밍: 스폰 직후 즉시, 이후 매 무작위 주기 (issue #19)
+
+각 적은 정확히 하나의 `action`(`'dash' | 'oscillate' | 'circle'`)을 갖고, `actionRemainSec`이 0 이하가 될 때마다 `updateEnemyAi`가 셋 중 하나를 무작위로 다시 고른다.
+
+- **스폰 직후 즉시:** `spawnTick`은 새 적의 `actionRemainSec`을 정확히 `0`으로 초기화하고 나머지 행동 필드는 임의의 플레이스홀더로 채운다(값 자체는 중요하지 않다 — `applyMovement`가 이번 틱에는 이미 실행을 마쳤으므로 이 플레이스홀더를 읽지 않는다, §1 참고). 같은 틱에 `spawnTick` 바로 다음 실행되는 `updateEnemyAi`가 `actionRemainSec <= 0`을 보고 **그 즉시** 첫 실제 행동을 배정한다.
+- **이후 매 주기:** 재선택 시 `actionRemainSec`을 `[BalanceConfig.enemyAi.actionDurationMinSec, actionDurationMaxSec)` 범위의 새 난수로 다시 채운다.
+- 재선택 순서(정확히 이 순서로 `rng` 소비): ① `actionIndex = Math.min(2, Math.floor(rng() * 3))` → 표 `0:'dash', 1:'oscillate', 2:'circle'`, ② `actionRemainSec` 재추첨, ③ 선택된 행동에 따라 추가 필드 초기화(DASH/CIRCLE만 `rng` 1회 더 소비 — INV-EAI-2/4 참고).
+- 테스트 관점: 고정 시드로 `updateEnemyAi`를 반복 호출했을 때 매 호출의 `rng` 소비 횟수가 재선택 여부·행동 종류에 따라 정확히 0/2/3회여야 하고, 동일 시드·동일 호출 횟수는 항상 동일한 `action` 시퀀스를 재현해야 한다.
+
+### INV-EAI-2 — DASH: 레벨 게이팅된 고정 방향 직선 이동 (issue #19)
+
+DASH가 선택되면 `updateEnemyAi`가 `rng` 1회를 더 소비해 방향을 뽑고, 그 방향 단위벡터에 `BalanceConfig.enemy.speed`를 곱해 `dashVx`/`dashVy`를 정확히 한 번 정한다. 이 값은 DASH가 유지되는 `actionRemainSec` 동안 절대 바뀌지 않는다(재조향 없음).
+
+```
+world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel
+  ? index4 = Math.min(3, Math.floor(rng() * 4))   // 4방향 후보
+  : index8 = Math.min(7, Math.floor(rng() * 8))   // 8방향 후보
+```
+
+4방향 후보는 아래 8방향 고정 테이블(`FireEnemyProjectiles`/INV-EPROJ-1과 동일한 순서 테이블)에서 인덱스 `[0, 2, 4, 6]`(0/90/180/270도, 대각선 제외)만 사용한다. 8방향 후보는 전체 테이블을 그대로 사용한다.
+```
+0: ( 1,  0)   // 0deg   (+x)
+1: ( 1,  1)/sqrt(2)  // 45deg
+2: ( 0,  1)   // 90deg  (+y)
+3: (-1,  1)/sqrt(2)  // 135deg
+4: (-1,  0)   // 180deg (-x)
+5: (-1, -1)/sqrt(2)  // 225deg
+6: ( 0, -1)   // 270deg (-y)
+7: ( 1, -1)/sqrt(2)  // 315deg
+```
+`applyMovement`는 매 틱 `x += dashVx * dt; y += dashVy * dt`만 수행한다(§4의 `BalanceConfig.enemy.speed` 권장값 참고). 레벨 임계값은 `BalanceConfig.enemyAi.dashOctoDirectionLevel`(권장 `11`)이다.
+
+### INV-EAI-3 — OSCILLATE: y축 사인파 + x축 완만한 좌측 이동 (issue #19)
+
+OSCILLATE가 선택되면(추가 `rng` 소비 없음) `updateEnemyAi`가 `oscillateBaseY = enemy.y`(선택 시점의 현재 y), `oscillatePhaseSec = 0`으로 초기화한다. 이후 `applyMovement`가 매 틱:
+```
+enemy.x -= BalanceConfig.enemyAi.oscillateDriftSpeed * dt
+enemy.oscillatePhaseSec += dt
+enemy.y = enemy.oscillateBaseY + BalanceConfig.enemyAi.oscillateAmplitudePx
+  * Math.sin((2 * Math.PI / BalanceConfig.enemyAi.oscillatePeriodSec) * enemy.oscillatePhaseSec)
+```
+`oscillateBaseY`는 OSCILLATE가 유지되는 동안 다시 바뀌지 않는다(사인파의 기준선 고정).
+
+### INV-EAI-4 — CIRCLE: 원형 궤적 + 중심의 완만한 좌측 이동, 회전 방향 무작위 (issue #19)
+
+CIRCLE이 선택되면 `updateEnemyAi`가 `rng` 1회를 더 소비해 `circleDir = rng() < 0.5 ? 1 : -1`을 정하고, `circleAngleRad = 0`으로 초기화한 뒤, 현재 위치가 새 궤도 위(각도 0 지점)에 정확히 놓이도록 궤도 중심을 계산한다(순간 이동처럼 보이는 점프 방지):
+```
+centerX0 = enemy.x + enemy.width / 2
+centerY0 = enemy.y + enemy.height / 2
+enemy.circleCenterX = centerX0 - BalanceConfig.enemyAi.circleRadiusPx   // cos(0) = 1
+enemy.circleCenterY = centerY0                                          // sin(0) = 0
+```
+이후 `applyMovement`가 매 틱:
+```
+enemy.circleCenterX -= BalanceConfig.enemyAi.circleDriftSpeed * dt
+enemy.circleAngleRad += BalanceConfig.enemyAi.circleAngularSpeedRadPerSec * enemy.circleDir * dt
+enemy.x = enemy.circleCenterX + BalanceConfig.enemyAi.circleRadiusPx * Math.cos(enemy.circleAngleRad) - enemy.width / 2
+enemy.y = enemy.circleCenterY + BalanceConfig.enemyAi.circleRadiusPx * Math.sin(enemy.circleAngleRad) - enemy.height / 2
+```
+`circleCenterY`는 CIRCLE이 유지되는 동안 절대 바뀌지 않는다 — **중심의 좌측 이동은 x축에만 적용**된다(요구사항 1 "중심의 완만한 좌측 이동").
+
+### INV-EAI-5 — 세 행동 공통 경계 규칙: y 양축 클램프, x 우측 클램프만, 좌측 이탈은 INV-ESCAPE-1 그대로 (issue #19)
+
+DASH/OSCILLATE/CIRCLE 중 어떤 행동이 이번 틱 위치를 계산했든, `applyMovement`는 위치 계산 직후 다음을 **모든 살아 있는 적에게 예외 없이** 적용한다(적용 순서: 행동별 위치 계산 → y 클램프 → x 우측 클램프 → 좌측 이탈 검사):
+```
+enemy.y = clamp(enemy.y, 0, world.bounds.height - enemy.height)
+enemy.x = Math.min(enemy.x, world.bounds.width - enemy.width)
+if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없음
+```
+- y는 상/하 **양쪽 모두** 클램프한다(화면 밖으로 수직 이탈 자체가 없다).
+- x는 **우측 경계만** 클램프한다(우측으로 화면을 벗어나려는 시도는 경계에서 멈춘다). **좌측은 클램프하지 않는다** — 좌측 경계를 완전히 벗어나는 것은 소멸 조건(INV-ESCAPE-1)이지 클램프 대상이 아니다.
+- `INV-ESCAPE-1`이 정의하는 "좌측 완전 이탈 시 세션에 부수효과 없이 제거"는 세 행동 전부에 동일하게, 조건 없이 적용된다 — DASH가 우연히 왼쪽으로 향하든, OSCILLATE/CIRCLE의 좌측 드리프트로 서서히 벗어나든 판정식은 동일하다.
+- 테스트 관점: 세 행동 각각에 대해 (a) 화면 상단/하단 경계 밖으로 나가려는 입력값에서도 다음 틱 `y`가 `[0, bounds.height - height]`를 벗어나지 않는지, (b) 우측 경계를 넘어서려는 상태에서 `x`가 `bounds.width - width`를 초과하지 않는지, (c) 좌측으로 `width`만큼 완전히 벗어난 다음 틱에 `alive === false`가 되는지를 개별 검증한다.
+
 ### 부가 확인 사항 (불변식은 아니지만 리뷰·테스트 시 확인)
 - **투사체 방향:** 일반탄은 항상 `+x`로 직진한다. 스킬탄은 최초 획득한 살아 있는 적을 ID로 락온하고, 대상이 사라졌을 때만 최근접 적을 재획득한다. 중심 거리 150px 미만에서는 회전 계수를 0.3으로 높이고, 대상이 없을 때는 현재 관성을 유지한다. 최초·재획득 거리 제곱이 같으면 `enemies` 배열의 앞선 적을 선택한다.
 - **적 투사체 8방향 선택(issue #17, 결정적 rng 매핑):** `index = Math.floor(rng() * 8)`(이론상 `rng() === 1` 방지를 위해 7로 클램프)로 아래 고정 순서 테이블에서 방향 단위벡터를 고른다. 이 순서는 `src/contracts/systems.ts`의 `FireEnemyProjectiles` JSDoc과 정확히 동일하며, 순서를 바꾸면 계약 개정이 필요하다.
@@ -234,7 +310,7 @@ offscreen =
   7: (1, -1)/sqrt(2)     // 315deg
   ```
   방향 단위벡터에 발사한 적의 `projSpeed`를 곱해 `vx`/`vy`를 정한다(INV-EPROJ-1).
-- **적 방향:** 적은 생성 이후 방향을 바꾸지 않는다. 항상 `-x`로만 이동한다(D-5).
+- **적 방향(issue #19로 개정):** 적은 더 이상 항상 `-x`로만 이동하지 않는다. 스폰 직후 즉시, 그리고 이후 무작위 주기(`[actionDurationMinSec, actionDurationMaxSec)`)마다 DASH/OSCILLATE/CIRCLE 중 하나를 무작위로 재선택한다 — design.md D-5의 "좌측 방향 직진" 서술은 이 개정으로 대체되었다(INV-EAI-1~5). 단, 좌측 완전 이탈 시 세션 부수효과 없이 제거되는 규칙(INV-ESCAPE-1)은 세 행동 모두에 그대로 유지된다.
 - **재시작 게이팅(D-6):** `input.restart`는 `world.session.status === 'gameover'`일 때만 유효하다. 이 게이팅은 `stepWorld`가 아니라 **`hooks/useGameLoop.ts`(접착 계층)**가 담당한다 — `status`가 `'gameover'`가 되면 `stepWorld` 자체가 no-op이 되므로(§1), 재시작 로직(=`createWorld()` 재호출 + `hudStore.reset()`)은 게임 로직이 아니라 훅이 실행한다. `game/**`는 `createWorld()`를 호출할 뿐, "언제 재호출할지"는 판단하지 않는다.
 - **월드 재생성 시 상태 누수 금지(D-6):** 재시작은 `createWorld()`가 반환하는 **완전히 새로운 객체**로 `useRef.current`를 교체한다. 기존 `GameWorld`의 필드를 하나씩 리셋하지 않는다.
 - **HUD 발행 스로틀 예외:** `status` 필드가 이전 스냅샷과 달라지는 `publish` 호출은 `HUD_PUBLISH_INTERVAL_MS` 스로틀을 무시하고 즉시 반영되어야 한다(구현은 `hooks/useGameLoop.ts` 쪽에서 "마지막 발행 이후 경과 시간 확인"과 별개로 "status 변경 여부"를 체크하는 방식을 권장. `hudStore.publish` 자체는 스로틀 로직을 갖지 않는다 — 호출측 책임).
@@ -278,11 +354,20 @@ offscreen =
 | `skillProjectile.lifetimeSec` | `2.0` | sec |
 | `enemy.width` | `28` | |
 | `enemy.height` | `28` | |
-| `enemy.speed` | `120` | px/sec |
+| `enemy.speed` | `120` | px/sec, **issue #19로 역할 변경**: DASH 행동의 고정 속도 크기(더 이상 "항상 -x"가 아님, INV-EAI-2) |
 | `enemy.hp` | `1` | 투사체 1방 처치 |
 | `enemy.scoreValue` | `10` | |
 | `enemy.manaGain` | `5` | percent |
 | `enemy.contactDamage` | `1` | |
+| `enemyAi.actionDurationMinSec` | `1.5` | sec (issue #19) |
+| `enemyAi.actionDurationMaxSec` | `2.5` | sec (issue #19) |
+| `enemyAi.dashOctoDirectionLevel` | `11` | 레벨, 이 값 이상부터 DASH가 8방향 후보를 사용(INV-EAI-2) |
+| `enemyAi.oscillateAmplitudePx` | `40` | px |
+| `enemyAi.oscillatePeriodSec` | `1.2` | sec |
+| `enemyAi.oscillateDriftSpeed` | `40` | px/sec |
+| `enemyAi.circleRadiusPx` | `50` | px |
+| `enemyAi.circleAngularSpeedRadPerSec` | `3.0` | rad/sec (약 2.1초에 한 바퀴) |
+| `enemyAi.circleDriftSpeed` | `40` | px/sec |
 | `enemyProjectile.width` | `10` | px (issue #17) |
 | `enemyProjectile.height` | `10` | px |
 | `enemyProjectile.speedBase` | `150` | px/sec, 레벨 1 스폰 기준 (INV-EPROJ-1) |
@@ -322,3 +407,10 @@ offscreen =
 - **변경 파일:** `src/contracts/entities.ts`(`EnemyProjectile` 신설, `Enemy.projSpeed`/`Enemy.projFireCooldownRemainSec` 추가), `src/contracts/world.ts`(`GameWorld.enemyProjectiles` 추가), `src/contracts/systems.ts`(`EnemyProjectileHit`/`CollisionResult.enemyProjectileHits`/`FireEnemyProjectiles` 추가, `ApplyMovement`/`ApplyCombat`/`SpawnTick`/`StepWorld`/`CreateWorld` JSDoc 갱신), `src/contracts/balance.ts`(`EnemyProjectileBalance` 신설, `LimitsBalance.maxEnemyProjectiles` 추가).
 - **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
 - **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `EnemyProjectile` 판별 유니온 추가, `Enemy`/`GameWorld`/`CollisionResult`/`BalanceConfig` 확장, 신규 `FireEnemyProjectiles` 함수 타입 반영 후 독립 컴파일 통과.
+
+### 5.2 issue #19 — 적 행동 패턴(DASH/OSCILLATE/CIRCLE) 계약 개정 (2026-08-25)
+
+- **변경 파일:** `src/contracts/entities.ts`(`Enemy`에 `action`/`actionRemainSec`/`dashVx`/`dashVy`/`oscillateBaseY`/`oscillatePhaseSec`/`circleCenterX`/`circleCenterY`/`circleAngleRad`/`circleDir` 10개 필드 추가), `src/contracts/balance.ts`(`EnemyAiBalance` 신설·`BalanceConfig.enemyAi` 추가, `EnemyBalance.speed` JSDoc을 "DASH 속도 크기"로 개정), `src/contracts/systems.ts`(`ApplyMovement`의 적 이동 서술을 행동 기반으로 전면 개정 및 `@mutates` 확장, 신규 `UpdateEnemyAi` 함수 타입 추가, `SpawnTick`/`StepWorld` JSDoc 갱신).
+- **함수 분리 결정:** 적 행동 재선택(무작위성 필요)과 위치 적분(매 틱, 무작위성 불필요)을 `enemyAi.ts`(`updateEnemyAi`, rng 소비)와 기존 `movement.ts`(`applyMovement`, rng 미소비, 시그니처 불변)로 분리했다. `stepWorld` 순서에서 `updateEnemyAi`를 `spawnTick` 바로 다음·`detectCollisions` 이전(새 5단계)에 두어, `applyMovement`(3단계, `spawnTick`보다 먼저 실행)가 항상 "1틱 전에 확정된" 행동 상태만 읽고, 갓 스폰된 적도 같은 틱 안에서 즉시 첫 행동을 배정받도록 했다(상세 근거는 §1 및 INV-EAI-1 참고). 이는 `weapon.ts`(rng로 발사 결정)와 `movement.ts`(rng 없이 매 틱 위치 적분)의 기존 분리 패턴과 동일한 원칙이다.
+- **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `Enemy` 10개 신규 필드, `EnemyAiBalance`/`BalanceConfig.enemyAi`, 신규 `UpdateEnemyAi` 함수 타입 반영 후 독립 컴파일 통과.

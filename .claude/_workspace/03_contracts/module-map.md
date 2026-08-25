@@ -21,6 +21,7 @@
 | `@/game/systems/weapon` | `fireWeapon` | `FireWeapon` | `mutates-arg(world)`, 실제 스킬탄 생성 시 주입 `Rng` 1회 소비 | `node` |
 | `@/game/systems/enemyWeapon` | `fireEnemyProjectiles` | `FireEnemyProjectiles` | `mutates-arg(world)`, 실제로 발사하는 적마다 주입 `Rng` 1회씩 소비 (issue #17) | `node` |
 | `@/game/systems/spawner` | `spawnTick` | `SpawnTick` | `mutates-arg(world)` | `node` |
+| `@/game/systems/enemyAi` | `updateEnemyAi` | `UpdateEnemyAi` | `mutates-arg(world)`, 재선택하는 적마다 주입 `Rng` 2~3회 소비 (issue #19) | `node` |
 | `@/game/systems/combat` | `applyCombat` | `ApplyCombat` | `mutates-arg(world)` | `node` |
 | `@/game/systems/progression` | `applyProgression` | `ApplyProgression` | `mutates-arg(world)` | `node` |
 | `@/game/stepWorld` | `stepWorld` | `StepWorld` | `mutates-arg(world)` | `node` |
@@ -33,6 +34,8 @@
 **QA 참고:** 위 표의 모든 항목은 DOM 없이 `environment: node`에서 직접 `import`해 호출할 수 있어야 한다(§6.0 규칙 4 — 이것이 이번 설계의 존재 이유). 픽스처(예: `Enemy`/`RegularProjectile`/`SkillProjectile`/`EnemyProjectile` 리터럴, 고정 시드 `Rng`)는 `tests/helpers/**`에 타입 붙은 빌더로 작성한다.
 
 **`enemyWeapon.ts` 파일 분리 결정(issue #17):** 기존 `spawner.ts`(적 생성)에 합치지 않고 별도 파일로 분리했다 — `spawner.ts`는 "적을 언제/어디에 만들 것인가"만 책임지고, `enemyWeapon.ts`는 "이미 존재하는 적이 언제/어느 방향으로 투사체를 쏘는가"를 책임진다. 플레이어 쪽의 `weapon.ts`(발사) / `spawner.ts`(적 생성)가 이미 분리되어 있는 것과 대칭을 이루며, 각 파일이 단일 책임을 유지한다.
+
+**`enemyAi.ts` 파일 분리 결정(issue #19) — `movement.ts`에 합치지 않은 이유:** 적 행동(DASH/OSCILLATE/CIRCLE) "재선택"은 무작위성이 필요한 저빈도(1.5~2.5초당 1회) 의사결정이고, 적 위치 "적분"은 무작위성이 불필요한 매 틱 연산이다. 기존 `ApplyMovement` 계약은 `rng` 인자를 받지 않는 순수 위치 갱신 함수로 이미 확정돼 있었고(다른 엔티티들의 이동도 전부 이 원칙을 따름), 여기에 `rng`를 추가하면 시그니처가 깨져 기존 소비자(테스트 픽스처 포함)에 영향을 준다. 대신 `weapon.ts`(rng로 스킬탄 초기 상태 결정) → `movement.ts`(rng 없이 매 틱 그 상태를 조향/적분)의 기존 분리 패턴을 그대로 재사용해, `enemyAi.ts`(rng로 행동·방향·회전 방향 결정) → `movement.ts`(rng 없이 매 틱 그 행동에 따라 위치 적분)로 대칭 구성했다. `stepWorld` 조립 순서에서는 `updateEnemyAi`를 `spawnTick` 바로 다음(새 5단계)에 두어, `applyMovement`(3단계, 항상 먼저 실행)가 매 틱 "1틱 전에 확정된" 행동 상태만 읽도록 하면서도 갓 스폰된 적이 같은 틱에 즉시 첫 행동을 배정받게 한다(invariants.md INV-EAI-1).
 
 ---
 
