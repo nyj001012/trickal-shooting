@@ -11,7 +11,7 @@
 | `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `enemyProjectiles`, `session`, `spawner`, `nextEntityId` | 한 플레이 세션의 전체 인메모리 상태              |
 | `GameSession`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | HUD와 진행 상태의 SSOT                           |
 | `Player`            | 공통 Box 필드, `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`, `invulnRemainSec` | 플레이어 엔티티                                  |
-| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`, readonly `projSpeed`, `projFireCooldownRemainSec` | 좌측으로 이동하고 주기적으로 8방향 투사체를 발사하는 적 |
+| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`, readonly `projSpeed`, `projFireCooldownRemainSec`, `action`, `actionRemainSec`, `dashVx`, `dashVy`, `oscillateBaseY`, `oscillatePhaseSec`, `circleCenterX`, `circleCenterY`, `circleAngleRad`, `circleDir` | DASH/OSCILLATE/CIRCLE 중 무작위 행동을 주기적으로 재선택하는 적. 주기적으로 8방향 투사체도 발사한다(issue #17/19). |
 | `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄                         |
 | `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`, `targetId`, readonly 원·근거리 조향 튜닝              | 생존 적을 락온하고 근거리 회전력을 높이는 스킬탄 |
 | `EnemyProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`                                                        | 적이 8방향으로 발사하는 직진 투사체, 4변 이탈 소멸 |
@@ -41,6 +41,7 @@
 | `@/game/systems/enemyWeapon`   | `fireEnemyProjectiles(world, dt, rng): void` | 각 적의 쿨다운·발사 주기(현재 레벨 기반), 8방향 선택, 투사체 배열 |
 | `@/game/systems/movement`      | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명·스킬탄 속도·락온, 이탈 적·투사체 제거 |
 | `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID                   |
+| `@/game/systems/enemyAi`     | `updateEnemyAi(world, dt, rng): void`      | 각 적의 행동 재선택(DASH/OSCILLATE/CIRCLE), 관련 필드 갱신 (issue #19) |
 | `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·탄종별 생존, SCORE·MANA, 무적 시간       |
 | `@/game/systems/progression` | `applyProgression(world): void`            | MANA 포화, LEVEL·스폰 주기, 게임 상태           |
 
