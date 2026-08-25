@@ -113,6 +113,39 @@ describe('stepWorld — automatic player fire (D-2)', () => {
   });
 });
 
+describe('stepWorld — updateEnemyAi assigns a real action to a freshly-spawned enemy the same tick it spawns (issue #19, INV-EAI-1)', () => {
+  it('spawns an enemy with a positive actionRemainSec and a valid action after one stepWorld tick', () => {
+    const world = makeWorld({
+      spawner: { intervalRemainSec: 0, currentIntervalSec: 1.2 },
+    });
+
+    stepWorld(world, makeInputState(), DT, createRng(7));
+
+    expect(world.enemies).toHaveLength(1);
+    const spawned = world.enemies[0];
+    expect(['dash', 'oscillate', 'circle']).toContain(spawned.action);
+    expect(spawned.actionRemainSec).toBeGreaterThan(0);
+  });
+
+  it('leaves the freshly-spawned enemy at exactly x = bounds.width (updateEnemyAi never writes x/y, and applyMovement already ran earlier in the same tick, before spawnTick)', () => {
+    // Confirms the System Execution Order: applyMovement (3) runs before spawnTick (4)
+    // and updateEnemyAi (5) only mutates action-selection fields — so a same-tick
+    // spawn's position is untouched by either system this tick (INV-SPAWN-1 stays
+    // intact for the enemy's very first frame).
+    const bounds = { width: 800, height: 600 };
+    const world = makeWorld({
+      bounds,
+      spawner: { intervalRemainSec: 0, currentIntervalSec: 1.2 },
+    });
+
+    stepWorld(world, makeInputState(), DT, createRng(7));
+
+    expect(world.enemies).toHaveLength(1);
+    expect(world.enemies[0].alive).toBe(true);
+    expect(world.enemies[0].x).toBe(bounds.width);
+  });
+});
+
 describe('stepWorld — enemy escape has no session side effects (INV-ESCAPE-1)', () => {
   it('applies only direct contact damage when one enemy escapes left and another contacts the player in the same tick', () => {
     const bounds = { width: 800, height: 600 };

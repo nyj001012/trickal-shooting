@@ -61,6 +61,19 @@ export function makeEnemy(overrides: Partial<Enemy> = {}): Enemy {
     height: 28,
     alive: true,
     hp: 1,
+    // Issue #19 (INV-EAI-1..5) — action-based motion. Defaults are plausible but
+    // arbitrary placeholders; tests that care about a specific action's fields override
+    // them explicitly rather than relying on these values.
+    action: 'dash',
+    actionRemainSec: 0,
+    dashVx: -120,
+    dashVy: 0,
+    oscillateBaseY: 300,
+    oscillatePhaseSec: 0,
+    circleCenterX: 0,
+    circleCenterY: 0,
+    circleAngleRad: 0,
+    circleDir: 1,
     scoreValue: 10,
     manaGain: 5,
     contactDamage: 1,

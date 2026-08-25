@@ -90,6 +90,26 @@ export const BALANCE = {
     /** count */
     contactDamage: 1,
   },
+  enemyAi: {
+    /** sec */
+    actionDurationMinSec: 1.5,
+    /** sec */
+    actionDurationMaxSec: 2.5,
+    /** level */
+    dashOctoDirectionLevel: 11,
+    /** px */
+    oscillateAmplitudePx: 40,
+    /** sec */
+    oscillatePeriodSec: 1.2,
+    /** px/sec */
+    oscillateDriftSpeed: 40,
+    /** px */
+    circleRadiusPx: 50,
+    /** rad/sec */
+    circleAngularSpeedRadPerSec: 3.0,
+    /** px/sec */
+    circleDriftSpeed: 40,
+  },
   enemyProjectile: {
     /** px */
     width: 10,

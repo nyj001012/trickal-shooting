@@ -51,6 +51,20 @@ export const spawnTick: SpawnTick = (world, dt, rng): void => {
     width: BALANCE.enemy.width,
     height: BALANCE.enemy.height,
     hp: BALANCE.enemy.hp,
+    // Placeholder action-selection fields (issue #19, INV-EAI-1): actionRemainSec MUST be
+    // exactly 0 so that updateEnemyAi (running immediately after this same tick) performs
+    // a full re-roll on its very next pass. applyMovement already ran earlier this tick,
+    // before spawnTick, so it never reads any of these placeholders for this enemy.
+    action: 'dash',
+    actionRemainSec: 0,
+    dashVx: 0,
+    dashVy: 0,
+    oscillateBaseY: y,
+    oscillatePhaseSec: 0,
+    circleCenterX: 0,
+    circleCenterY: 0,
+    circleAngleRad: 0,
+    circleDir: 1,
     scoreValue: BALANCE.enemy.scoreValue,
     manaGain: BALANCE.enemy.manaGain,
     contactDamage: BALANCE.enemy.contactDamage,
