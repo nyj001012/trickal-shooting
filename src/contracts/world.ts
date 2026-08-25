@@ -3,7 +3,7 @@
  * Declarations only — see the header rules in `entities.ts`.
  */
 
-import type { Enemy, Player, RegularProjectile, SkillProjectile } from './entities';
+import type { Enemy, EnemyProjectile, Player, RegularProjectile, SkillProjectile } from './entities';
 
 /** Fixed logical playfield size (design.md §1.1 — 800x600, never resized). */
 export interface Bounds {
@@ -82,6 +82,12 @@ export interface GameWorld {
   enemies: Enemy[];
   regularProjectiles: RegularProjectile[];
   skillProjectiles: SkillProjectile[];
+  /**
+   * Projectiles fired by enemies in one of the 8 fixed directions (issue #17). Kept
+   * separate from `regularProjectiles`/`skillProjectiles` because it belongs to the enemy
+   * side and uses a distinct, non-homing, 4-edge-exit movement/collision path.
+   */
+  enemyProjectiles: EnemyProjectile[];
   session: GameSession;
   spawner: SpawnerState;
   /** Next value to assign as an entity's `id`, then incremented. Starts at 0. */

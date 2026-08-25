@@ -93,6 +93,44 @@ export interface EnemyBalance {
   readonly contactDamage: number;
 }
 
+export interface EnemyProjectileBalance {
+  /** px; AABB width. */
+  readonly width: number;
+  /** px; AABB height. */
+  readonly height: number;
+  /**
+   * px/sec; EnemyProjectile speed magnitude for an enemy spawning at level 1. Combined
+   * with `speedPerLevel`/`speedMax` to compute each Enemy's frozen `readonly projSpeed`
+   * snapshot at the moment that enemy spawns (issue #17 requirement 1; INV-EPROJ-1).
+   */
+  readonly speedBase: number;
+  /**
+   * px/sec per level; amount `projSpeed` increases for each level above 1 AT THE MOMENT
+   * an enemy spawns. Never applied retroactively to an already-spawned enemy.
+   */
+  readonly speedPerLevel: number;
+  /** px/sec; ceiling applied to the computed `projSpeed` snapshot. */
+  readonly speedMax: number;
+  /** count; HP damage dealt to the player on hit. */
+  readonly damage: number;
+  /**
+   * sec; auto-expiry safety net if a projectile's fixed direction never carries it off
+   * any of the 4 playfield edges (INV-EPROJ-3).
+   */
+  readonly lifetimeSec: number;
+  /**
+   * sec; interval between shots for an enemy currently at level 1. Unlike the speed
+   * fields above, this (with the two fields below) is recomputed from the CURRENT level
+   * every time an enemy's fire cooldown resets — it is never snapshotted per-enemy
+   * (issue #17 requirement 2; INV-EPROJ-2).
+   */
+  readonly fireIntervalBase: number;
+  /** sec; amount the fire interval shrinks per level above 1 (mirrors SpawnBalance). */
+  readonly fireIntervalDecayPerLevel: number;
+  /** sec; floor below which the fire interval never shrinks further. */
+  readonly fireIntervalMinSec: number;
+}
+
 export interface SpawnBalance {
   /** sec; interval between spawns at level 1. */
   readonly initialIntervalSec: number;
@@ -123,6 +161,11 @@ export interface LimitsBalance {
   readonly maxRegularProjectiles: number;
   /** count; hard cap for `world.skillProjectiles`, enforced by `fireWeapon`. */
   readonly maxSkillProjectiles: number;
+  /**
+   * count; hard cap for `world.enemyProjectiles`, enforced by `fireEnemyProjectiles`
+   * (issue #17; §6.10 performance budget).
+   */
+  readonly maxEnemyProjectiles: number;
 }
 
 export interface LoopBalance {
@@ -143,6 +186,7 @@ export interface BalanceConfig {
   readonly regularProjectile: RegularProjectileBalance;
   readonly skillProjectile: SkillProjectileBalance;
   readonly enemy: EnemyBalance;
+  readonly enemyProjectile: EnemyProjectileBalance;
   readonly spawn: SpawnBalance;
   readonly progression: ProgressionBalance;
   readonly limits: LimitsBalance;

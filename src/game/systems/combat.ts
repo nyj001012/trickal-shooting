@@ -53,4 +53,17 @@ export const applyCombat: ApplyCombat = (world, collisions, dt): void => {
     }
     enemy.alive = false;
   }
+
+  for (const hit of collisions.enemyProjectileHits) {
+    const projectile = world.enemyProjectiles.find(
+      (candidate) => candidate.id === hit.projectile.id,
+    );
+    if (!projectile || !projectile.alive) continue;
+
+    projectile.alive = false;
+    if (world.player.invulnRemainSec <= 0) {
+      world.session.hp = Math.max(0, world.session.hp - projectile.damage);
+      world.player.invulnRemainSec = BALANCE.player.invulnSec;
+    }
+  }
 };
