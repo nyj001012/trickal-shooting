@@ -8,12 +8,13 @@
 
 | 타입                | 주요 필드                                                                                                       | 의미                                             |
 | ------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `session`, `spawner`, `nextEntityId`   | 한 플레이 세션의 전체 인메모리 상태              |
+| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `enemyProjectiles`, `session`, `spawner`, `nextEntityId` | 한 플레이 세션의 전체 인메모리 상태              |
 | `GameSession`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | HUD와 진행 상태의 SSOT                           |
 | `Player`            | 공통 Box 필드, `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`, `invulnRemainSec` | 플레이어 엔티티                                  |
-| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`                                                  | 좌측으로 이동하는 적                             |
+| `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`, readonly `projSpeed`, `projFireCooldownRemainSec` | 좌측으로 이동하고 주기적으로 8방향 투사체를 발사하는 적 |
 | `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄                         |
 | `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`, `targetId`, readonly 원·근거리 조향 튜닝              | 생존 적을 락온하고 근거리 회전력을 높이는 스킬탄 |
+| `EnemyProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`                                                        | 적이 8방향으로 발사하는 직진 투사체, 4변 이탈 소멸 |
 | `InputState`        | `up`, `down`, `left`, `right`, `skill`, `restart`                                                               | DOM 코드에서 변환된 의미 기반 입력               |
 | `HudSnapshot`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | React가 구독하는 읽기 전용 투영                  |
 
@@ -36,8 +37,9 @@
 | ---------------------------- | ------------------------------------------ | ----------------------------------------------- |
 | `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                            |
 | `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음, 탄종별 hit 배열 반환                      |
-| `@/game/systems/weapon`      | `fireWeapon(world, input, dt, rng): void`  | 두 쿨다운·스킬 상태, MANA, 탄종별 배열, 다음 ID |
-| `@/game/systems/movement`    | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명·스킬탄 속도·락온, 이탈 적 제거 |
+| `@/game/systems/weapon`        | `fireWeapon(world, input, dt, rng): void`  | 두 쿨다운·스킬 상태, MANA, 탄종별 배열, 다음 ID |
+| `@/game/systems/enemyWeapon`   | `fireEnemyProjectiles(world, dt, rng): void` | 각 적의 쿨다운·발사 주기(현재 레벨 기반), 8방향 선택, 투사체 배열 |
+| `@/game/systems/movement`      | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명·스킬탄 속도·락온, 이탈 적·투사체 제거 |
 | `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID                   |
 | `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·탄종별 생존, SCORE·MANA, 무적 시간       |
 | `@/game/systems/progression` | `applyProgression(world): void`            | MANA 포화, LEVEL·스폰 주기, 게임 상태           |
@@ -48,14 +50,15 @@
 
 ### 엔티티 제거
 
-시스템은 배열을 순회하면서 `splice`하지 않는다. 제거 대상의 `alive`만 `false`로 바꾸고 `stepWorld` 마지막에 한 번 필터링한다.
+시스템은 배열을 순회하면서 `splice`하지 않는다. 제거 대상의 `alive`만 `false`로 바꾸고 `stepWorld` 마지막에 한 번 필터링한다. 필터 대상에는 `enemies`, `regularProjectiles`, `skillProjectiles`, `enemyProjectiles` 네 배열이 모두 포함된다.
 
 ### 피해 규칙
 
 - 접촉 피해가 실제 HP를 줄였을 때만 무적 시간이 시작된다.
 - 무적 시간 중 추가 접촉은 적을 제거하지만 HP를 다시 줄이지 않는다.
 - 적이 좌측 경계를 완전히 벗어나면 해당 적만 제거하고 HP·무적 시간·SCORE·MANA는 변경하지 않는다.
-- HP 감소는 직접 접촉 피해로만 발생한다.
+- HP 감소는 적 접촉 피해와 적 투사체 피격으로 발생한다. 무적 시간은 두 피해 원천을 공유하며, 같은 틱에 두 피해가 동시에 도착해도 HP 감소는 최대 1회다.
+- 적 투사체는 무적 시간과 무관하게 항상 소멸한다.
 - HP는 0 아래로 내려가지 않는다.
 
 ### 일반탄·스킬탄 발사 규칙
@@ -127,4 +130,6 @@ await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(100));
 
 ## 밸런스 계약
 
-실제 값은 `src/game/balance.ts`의 `BALANCE`에 있고 `BalanceConfig`를 만족해야 한다. 그룹은 `canvas`, `player`, `regularProjectile`, `skillProjectile`, `enemy`, `spawn`, `progression`, `limits`, `loop`이며 키 이름이나 구조를 바꾸려면 계약 개정이 필요하다.
+실제 값은 `src/game/balance.ts`의 `BALANCE`에 있고 `BalanceConfig`를 만족해야 한다. 그룹은 `canvas`, `player`, `regularProjectile`, `skillProjectile`, `enemy`, `enemyProjectile`, `spawn`, `progression`, `limits`, `loop`이며 키 이름이나 구조를 바꾸려면 계약 개정이 필요하다.
+
+`enemyProjectile` 그룹의 주요 키는 `speedBase`, `speedPerLevel`, `speedMax`(발사 시점 스냅샷으로 계산, 불변), `fireIntervalBase`, `fireIntervalDecayPerLevel`, `fireIntervalMinSec`(발사 주기 리셋마다 현재 레벨로 재계산), `damage`, `lifetimeSec` 등이다. 상세한 권장 수치는 `.claude/_workspace/03_contracts/invariants.md`의 4장 "밸런스 계약 권장 수치"를 참고한다.
