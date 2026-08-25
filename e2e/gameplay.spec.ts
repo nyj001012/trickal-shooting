@@ -632,7 +632,7 @@ test.describe('적 8방향 탄막 (issue #17)', () => {
   });
 
   test('적 투사체가 플레이어와 겹치면 플레이어 HP가 감소한다', async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(150_000);
 
     // 직접 접촉(contact)과 적 투사체 피격은 같은 무적시간을 공유하고 동일한 피해량
     // (각 1)을 주므로, HP가 줄어든 "원인"을 구분하려면 그 순간 플레이어 박스에
@@ -640,8 +640,33 @@ test.describe('적 8방향 탄막 (issue #17)', () => {
     // 봐야 한다. 충돌 처리 틱에는 가해 엔티티가 그 즉시 배열에서 제거되어(같은 틱
     // 말미 sweep) 정확히 겹친 순간은 렌더링되지 않으므로, "충돌 직전 프레임에서
     // 어느 쪽이 압도적으로 더 가까웠는가"로 원인을 판별한다.
-    const candidateSeeds = [3, 1, 4];
-    const MAX_ITERATIONS_PER_SEED = 750;
+    //
+    // issue #19 회귀 노트: 이전 후보 시드 [3,1,4] × 750회 예산은 "적이 등속
+    // -x로만 직진"하던 구 동작을 전제로 튜닝되어 있었다. #19로 적 이동이
+    // DASH(무작위 8/4방향, 순간 등속 120px/sec이지만 방향별 순net 좌측 성분은
+    // 평균 0에 수렴)/OSCILLATE·CIRCLE(좌측 드리프트 각 40px/sec)를 균등 확률로
+    // 오가게 되면서, 세 행동을 평균한 순 좌측 접근 속도가 대략 (0+40+40)/3 ≈
+    // 27px/sec로 옛 등속(120px/sec)의 1/4 수준까지 떨어졌다 — 옛 예산(750회
+    // ≈ 12.5초)으로는 화면 전체를 가로지르기는커녕 적 투사체 사거리(초기
+    // fireIntervalBase/기본 speedBase·lifetimeSec 기준 약 450px) 안쪽까지도
+    // 못 들어오는 경우가 흔해져, 세 시드 모두 예산 안에 HP 하락 자체가 전혀
+    // 관측되지 않았다(`hpDropObserved`부터 false — 실측 확인됨).
+    //
+    // 아래 5개 후보 시드는 프로덕션과 동일한 시스템 파이프라인(`fireWeapon` →
+    // `fireEnemyProjectiles` → `applyMovement` → `spawnTick` → `updateEnemyAi` →
+    // `detectCollisions` → `applyCombat` → `applyProgression`, stepWorld.ts와
+    // 동일 순서)을 Node에서 직접 결정적으로 재생해 "해당 시드에서 플레이어의
+    // 첫 HP 하락이 정확히 몇 번째 틱에, enemyProjectile 겹침만으로(직접 접촉
+    // 없이) 발생하는가"를 사전 계산해 얻었다(도구: 임시 스크립트, 결과는 커밋
+    // 대상 아님). 각 시드의 첫 HP 하락 틱: 36→674, 35→803(계측상 804), 8→836
+    // (계측상 837), 40→971, 49→1074 — 전부 원인이 enemyProjectile 단독이다.
+    // 실측으로 "1 rAF 반복 ≈ 1 고정 틱"임도 별도로 검증했다(오차 0~1틱).
+    // `MAX_ITERATIONS_PER_SEED`는 이 중 가장 늦은 시드(49, 1074틱) 대비 넉넉한
+    // 여유(약 1.4배)를 두어 750 → 1500으로 올린다. 실제로는 목록의 첫 시드
+    // (36)에서 약 674회 만에 통과할 것으로 예상되며, 5개 시드를 모두 소진하는
+    // 경로는 회귀가 없는 한 발생하지 않는다.
+    const candidateSeeds = [36, 35, 8, 40, 49];
+    const MAX_ITERATIONS_PER_SEED = 1500;
     let hpDropObserved = false;
     let attributedToProjectile = false;
 
@@ -688,5 +713,146 @@ test.describe('적 8방향 탄막 (issue #17)', () => {
 
     expect(hpDropObserved).toBe(true);
     expect(attributedToProjectile).toBe(true);
+  });
+});
+
+test.describe('적 AI 이동 패턴: DASH/OSCILLATE/CIRCLE (issue #19)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?e2e=1');
+    await waitForTestBridge(page);
+  });
+
+  // 세 시나리오 모두 `installEntityTrace`/`readEntityTrace`/`buildPositionTracks`(issue #17에서
+  // 도입)를 그대로 재사용한다. enemy는 `drawEntity.ts`에서 색상 `#90ee90`의 원(circle)으로
+  // 그려지므로(design.md §6.7 RENDER_TABLE), 그 색으로 필터링해 중심 좌표를 추출한다.
+  // world 상태를 직접 노출하지 않는 3-메서드 TestBridge(design.md §6.9) 제약상, 행동 종류
+  // (dash/oscillate/circle) 자체를 직접 조회할 수는 없다 — 대신 눈에 보이는 궤적의 기하학적
+  // 성질(y축 오르내림, x 방향 전환)만으로 "단순 좌측 등속 이동이 아님"을 판별한다.
+
+  test('결정적 시드로 스폰 직후 적이 단순 좌측 등속 이동이 아니라 y축 변화 또는 방향 전환을 보인다', async ({
+    page,
+  }) => {
+    await page.evaluate(() => window.__TRICKAL_TEST__?.seed(1));
+    await installEntityTrace(page);
+
+    const framePoints: { x: number; y: number }[][] = [];
+    for (let i = 0; i < 260; i += 1) {
+      await page.evaluate(async () => {
+        window.__TRICKAL_TEST__?.stepFrames(2);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+      const trace = await readEntityTrace(page);
+      const points = trace
+        .filter((record) => record.shape === 'circle' && record.color === '#90ee90')
+        .map((record) => ({ x: record.x + record.width / 2, y: record.y + record.height / 2 }));
+      framePoints.push(points);
+    }
+
+    // 이 저장소의 다른 궤적 추적 테스트들과 동일한 단위(레벨1 이동 속도 규모 대비 충분히
+    // 넉넉한 여유)로 튜닝한 임계값. 실측: seed=1에서 이 임계값으로 최소 3개 트랙이
+    // 100 포인트 이상 이어지며 스윙/방향전환을 모두 보인다.
+    const MAX_STEP_DISTANCE_PX = 40;
+    const tracks = buildPositionTracks(framePoints, MAX_STEP_DISTANCE_PX);
+    expect(tracks.length).toBeGreaterThan(0);
+
+    const MIN_TRACK_POINTS = 6;
+    const MIN_Y_RANGE_PX = 15;
+
+    const showsVerticalSwing = tracks.some((track) => {
+      if (track.points.length < MIN_TRACK_POINTS) return false;
+      const ys = track.points.map((point) => point.y);
+      const range = Math.max(...ys) - Math.min(...ys);
+      if (range < MIN_Y_RANGE_PX) return false;
+      let increased = false;
+      let decreased = false;
+      for (let i = 1; i < ys.length; i += 1) {
+        if (ys[i] - ys[i - 1] > 0.5) increased = true;
+        if (ys[i] - ys[i - 1] < -0.5) decreased = true;
+      }
+      return increased && decreased;
+    });
+
+    const showsDirectionReversal = tracks.some((track) => {
+      if (track.points.length < MIN_TRACK_POINTS) return false;
+      const dxs = track.points.slice(1).map((point, i) => point.x - track.points[i].x);
+      const signs = dxs.filter((dx) => Math.abs(dx) > 0.5).map((dx) => Math.sign(dx));
+      return signs.some((sign) => sign > 0) && signs.some((sign) => sign < 0);
+    });
+
+    // OSCILLATE/CIRCLE는 y축이 오르내리고(swing), 재선택으로 DASH 방향이 바뀌면 x 진행
+    // 방향이 뒤집힌다(reversal) — 개정 전 "항상 -x로만 이동"이었다면 어느 쪽도 관측될 수
+    // 없다.
+    expect(showsVerticalSwing || showsDirectionReversal).toBe(true);
+  });
+
+  test('적은 화면 상하 경계를 넘지 않고(y 클램프), 클램프가 실제로 작동한다', async ({ page }) => {
+    await page.evaluate(() => window.__TRICKAL_TEST__?.seed(1));
+    await installEntityTrace(page);
+
+    let minTopPx = Number.POSITIVE_INFINITY;
+    let maxBottomPx = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < 260; i += 1) {
+      await page.evaluate(async () => {
+        window.__TRICKAL_TEST__?.stepFrames(2);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+      const trace = await readEntityTrace(page);
+      for (const record of trace) {
+        if (record.shape !== 'circle' || record.color !== '#90ee90') continue;
+        minTopPx = Math.min(minTopPx, record.y);
+        maxBottomPx = Math.max(maxBottomPx, record.y + record.height);
+      }
+    }
+
+    expect(Number.isFinite(minTopPx)).toBe(true);
+    // INV-EAI-5: 어떤 틱에서도 적 AABB는 [0, 600] y범위를 벗어나지 않는다(상단 y>=0,
+    // 하단 y+height<=600). 렌더링/부동소수 오차를 감안해 1px 여유를 둔다.
+    expect(minTopPx).toBeGreaterThanOrEqual(-1);
+    expect(maxBottomPx).toBeLessThanOrEqual(601);
+
+    // 클램프가 "우연히 한 번도 경계 근처에 가지 않아서 통과"하는 위양성을 막기 위해,
+    // 실제로 경계에 근접(또는 정확히 도달)했는지도 함께 확인한다. seed=1 실측상 하단
+    // 경계(y+height===600)에 정확히 도달한다.
+    expect(maxBottomPx).toBeGreaterThanOrEqual(595);
+  });
+
+  test('화면 왼쪽으로 완전히 벗어난 적은 소멸해 더 이상 그려지지 않는다', async ({ page }) => {
+    test.setTimeout(60_000);
+
+    await page.evaluate(() => window.__TRICKAL_TEST__?.seed(1));
+    await installEntityTrace(page);
+
+    // OSCILLATE/CIRCLE의 좌측 드리프트(40px/sec)는 DASH-왼쪽(120px/sec)보다 느리므로,
+    // 최소 1개체가 화면을 완전히 벗어나는 것을 관측하려면 issue #17의 투사체 이탈
+    // 테스트보다 훨씬 긴 시뮬레이션 시간이 필요하다. 렌더링 없이 대량 tick만 진행하는
+    // 구간(`stepFrames`)과 소량의 렌더링 관측 구간을 번갈아 반복해 비용을 낮춘다.
+    const framePoints: { x: number; y: number }[][] = [];
+    for (let i = 0; i < 130; i += 1) {
+      await page.evaluate(async () => {
+        window.__TRICKAL_TEST__?.stepFrames(25);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+      const trace = await readEntityTrace(page);
+      const points = trace
+        .filter((record) => record.shape === 'circle' && record.color === '#90ee90')
+        .map((record) => ({ x: record.x + record.width / 2, y: record.y + record.height / 2 }));
+      framePoints.push(points);
+    }
+
+    // 25틱(약 0.42초) 사이 최대 이동 거리(DASH 속도 120px/sec 기준 약 50px, 실측 오차
+    // 포함)에 여유를 더한 값.
+    const MAX_STEP_DISTANCE_PX = 150;
+    const tracks = buildPositionTracks(framePoints, MAX_STEP_DISTANCE_PX);
+    expect(tracks.length).toBeGreaterThan(0);
+
+    const LEFT_EXIT_MARGIN_PX = 50;
+    const terminatedTracks = tracks.filter((track) => !track.active && track.points.length >= 2);
+    const exitedLeft = terminatedTracks.some((track) => {
+      const last = track.points[track.points.length - 1];
+      return last.x <= LEFT_EXIT_MARGIN_PX;
+    });
+
+    expect(terminatedTracks.length).toBeGreaterThan(0);
+    expect(exitedLeft).toBe(true);
   });
 });
