@@ -9,6 +9,7 @@ export const PALETTE = {
   enemy: '#90EE90',
   regularProjectile: '#FFD700',
   skillProjectile: '#00FFFF',
+  enemyProjectile: '#FF8C00',
   hitFlash: '#FF4D4D',
   debug: '#00E5FF',
 } as const satisfies Readonly<Record<string, string>>;

@@ -4,6 +4,7 @@ import { applyMovement } from '@/game/systems/movement';
 import { BALANCE } from '@/game/balance';
 import {
   makeEnemy,
+  makeEnemyProjectile,
   makeInputState,
   makePlayer,
   makeRegularProjectile,
@@ -369,5 +370,133 @@ describe('applyMovement — skill-projectile homing and expiry (D-2)', () => {
     applyMovement(world, makeInputState(), DT);
     expect(world.skillProjectiles[0].alive).toBe(false);
     expect(world.skillProjectiles[1].alive).toBe(false);
+  });
+});
+
+describe('applyMovement — enemy projectiles fixed-velocity travel (issue #17, INV-EPROJ-3)', () => {
+  it('moves an alive enemy projectile by its own fixed vx/vy and decrements lifetime', () => {
+    const projectile = makeEnemyProjectile({
+      x: 400,
+      y: 300,
+      vx: 90,
+      vy: -60,
+      lifetimeRemainSec: 3,
+    });
+    const world = makeWorld({ enemyProjectiles: [projectile] });
+    applyMovement(world, makeInputState(), DT);
+    const moved = world.enemyProjectiles[0];
+    expect(moved.x).toBeCloseTo(400 + 90 * DT, 5);
+    expect(moved.y).toBeCloseTo(300 - 60 * DT, 5);
+    expect(moved.lifetimeRemainSec).toBeCloseTo(3 - DT, 5);
+    // vx/vy themselves must never be re-derived here (contrast with SkillProjectile).
+    expect(moved.vx).toBe(90);
+    expect(moved.vy).toBe(-60);
+  });
+
+  it('does not move a dead enemy projectile', () => {
+    const projectile = makeEnemyProjectile({ x: 400, y: 300, vx: 90, vy: 90, alive: false });
+    const world = makeWorld({ enemyProjectiles: [projectile] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].x).toBe(400);
+    expect(world.enemyProjectiles[0].y).toBe(300);
+  });
+
+  it('expires the tick it fully crosses the right edge (x > bounds.width)', () => {
+    const projectile = makeEnemyProjectile({ x: 801, y: 300, vx: 0, vy: 0, lifetimeRemainSec: 10 });
+    const world = makeWorld({
+      bounds: { width: 800, height: 600 },
+      enemyProjectiles: [projectile],
+    });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].alive).toBe(false);
+  });
+
+  it('expires the tick it fully crosses the left edge (x + width < 0)', () => {
+    const projectile = makeEnemyProjectile({
+      x: -11,
+      y: 300,
+      width: 10,
+      vx: 0,
+      vy: 0,
+      lifetimeRemainSec: 10,
+    });
+    const world = makeWorld({ enemyProjectiles: [projectile] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].alive).toBe(false);
+  });
+
+  it('expires the tick it fully crosses the top edge (y + height < 0)', () => {
+    const projectile = makeEnemyProjectile({
+      x: 400,
+      y: -11,
+      height: 10,
+      vx: 0,
+      vy: 0,
+      lifetimeRemainSec: 10,
+    });
+    const world = makeWorld({ enemyProjectiles: [projectile] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].alive).toBe(false);
+  });
+
+  it('expires the tick it fully crosses the bottom edge (y > bounds.height)', () => {
+    const projectile = makeEnemyProjectile({ x: 400, y: 601, vx: 0, vy: 0, lifetimeRemainSec: 10 });
+    const world = makeWorld({
+      bounds: { width: 800, height: 600 },
+      enemyProjectiles: [projectile],
+    });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].alive).toBe(false);
+  });
+
+  it('stays alive while exactly touching (not exceeding) the right and bottom boundaries', () => {
+    const atRight = makeEnemyProjectile({ x: 800, y: 300, vx: 0, vy: 0, lifetimeRemainSec: 10 });
+    const atBottom = makeEnemyProjectile({
+      id: 5,
+      x: 400,
+      y: 600,
+      vx: 0,
+      vy: 0,
+      lifetimeRemainSec: 10,
+    });
+    const world = makeWorld({
+      bounds: { width: 800, height: 600 },
+      enemyProjectiles: [atRight, atBottom],
+    });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].alive).toBe(true);
+    expect(world.enemyProjectiles[1].alive).toBe(true);
+  });
+
+  it('does not expire mid-flight while moving diagonally and remaining inside the bounds', () => {
+    const speed = BALANCE.enemyProjectile.speedBase;
+    const diagonal = Math.SQRT1_2 * speed;
+    const projectile = makeEnemyProjectile({
+      x: 400,
+      y: 300,
+      vx: diagonal,
+      vy: diagonal,
+      lifetimeRemainSec: 10,
+    });
+    const world = makeWorld({ enemyProjectiles: [projectile] });
+    for (let i = 0; i < 10; i += 1) {
+      applyMovement(world, makeInputState(), DT);
+    }
+    expect(world.enemyProjectiles[0].alive).toBe(true);
+    expect(world.enemyProjectiles[0].x).toBeCloseTo(400 + diagonal * DT * 10, 5);
+    expect(world.enemyProjectiles[0].y).toBeCloseTo(300 + diagonal * DT * 10, 5);
+  });
+
+  it('expires an enemy projectile by lifetime even while still inside the bounds', () => {
+    const projectile = makeEnemyProjectile({
+      x: 400,
+      y: 300,
+      vx: 0,
+      vy: 0,
+      lifetimeRemainSec: DT / 2,
+    });
+    const world = makeWorld({ enemyProjectiles: [projectile] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.enemyProjectiles[0].alive).toBe(false);
   });
 });

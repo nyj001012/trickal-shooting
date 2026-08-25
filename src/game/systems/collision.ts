@@ -7,6 +7,7 @@ import type {
   Box,
   CollisionResult,
   DetectCollisions,
+  EnemyProjectileHit,
   PlayerContact,
   RegularProjectileHit,
   SkillProjectileHit,
@@ -47,5 +48,15 @@ export const detectCollisions: DetectCollisions = (world): CollisionResult => {
     }
   }
 
-  return { regularProjectileHits, skillProjectileHits, playerContacts };
+  const enemyProjectileHits: EnemyProjectileHit[] = [];
+  if (world.player.alive) {
+    for (const projectile of world.enemyProjectiles) {
+      if (!projectile.alive) continue;
+      if (aabbOverlap(projectile, world.player)) {
+        enemyProjectileHits.push({ projectile });
+      }
+    }
+  }
+
+  return { regularProjectileHits, skillProjectileHits, playerContacts, enemyProjectileHits };
 };

@@ -10,6 +10,7 @@
 import type {
   Bounds,
   Enemy,
+  EnemyProjectile,
   GameSession,
   GameWorld,
   InputState,
@@ -63,6 +64,28 @@ export function makeEnemy(overrides: Partial<Enemy> = {}): Enemy {
     scoreValue: 10,
     manaGain: 5,
     contactDamage: 1,
+    // Matches BALANCE.enemyProjectile.speedBase at level 1 (INV-EPROJ-1's frozen
+    // spawn-time snapshot); override explicitly when a test needs a different level.
+    projSpeed: 150,
+    // 0 = ready to fire immediately; override to exercise the cooldown-gate itself.
+    projFireCooldownRemainSec: 0,
+    ...overrides,
+  };
+}
+
+export function makeEnemyProjectile(overrides: Partial<EnemyProjectile> = {}): EnemyProjectile {
+  return {
+    id: 4,
+    kind: 'enemyProjectile',
+    x: 400,
+    y: 300,
+    width: 10,
+    height: 10,
+    alive: true,
+    vx: 150,
+    vy: 0,
+    damage: 1,
+    lifetimeRemainSec: 3,
     ...overrides,
   };
 }
@@ -132,6 +155,7 @@ export function makeWorld(overrides: Partial<GameWorld> = {}): GameWorld {
     enemies: [],
     regularProjectiles: [],
     skillProjectiles: [],
+    enemyProjectiles: [],
     session: makeSession(),
     spawner: makeSpawner(),
     nextEntityId: 100,

@@ -90,6 +90,28 @@ export const BALANCE = {
     /** count */
     contactDamage: 1,
   },
+  enemyProjectile: {
+    /** px */
+    width: 10,
+    /** px */
+    height: 10,
+    /** px/sec */
+    speedBase: 150,
+    /** px/sec per level */
+    speedPerLevel: 10,
+    /** px/sec */
+    speedMax: 300,
+    /** count */
+    damage: 1,
+    /** sec */
+    lifetimeSec: 3.0,
+    /** sec */
+    fireIntervalBase: 2.0,
+    /** sec */
+    fireIntervalDecayPerLevel: 0.08,
+    /** sec */
+    fireIntervalMinSec: 0.6,
+  },
   spawn: {
     /** sec */
     initialIntervalSec: 1.2,
@@ -115,6 +137,8 @@ export const BALANCE = {
     maxRegularProjectiles: 60,
     /** count */
     maxSkillProjectiles: 60,
+    /** count */
+    maxEnemyProjectiles: 80,
   },
   loop: {
     /** ms */

@@ -2,7 +2,7 @@
  * Player/enemy movement plus independent regular and homing skill projectile paths.
  * @module @/game/systems/movement
  */
-import type { ApplyMovement, Enemy, SkillProjectile } from '@/contracts';
+import type { ApplyMovement, Box, Enemy, SkillProjectile } from '@/contracts';
 
 import { BALANCE } from '../balance';
 
@@ -48,7 +48,7 @@ function resolveLockedTarget(
 }
 
 function isFullyOutside(
-  projectile: Readonly<SkillProjectile>,
+  projectile: Readonly<Box>,
   bounds: Readonly<{ width: number; height: number }>,
 ): boolean {
   return (
@@ -117,6 +117,16 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
       }
     }
 
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
+    projectile.lifetimeRemainSec = Math.max(0, projectile.lifetimeRemainSec - dt);
+    if (projectile.lifetimeRemainSec <= 0 || isFullyOutside(projectile, world.bounds)) {
+      projectile.alive = false;
+    }
+  }
+
+  for (const projectile of world.enemyProjectiles) {
+    if (!projectile.alive) continue;
     projectile.x += projectile.vx * dt;
     projectile.y += projectile.vy * dt;
     projectile.lifetimeRemainSec = Math.max(0, projectile.lifetimeRemainSec - dt);

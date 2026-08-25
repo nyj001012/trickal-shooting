@@ -20,6 +20,7 @@ const RENDER_TABLE: Readonly<Record<EntityKind, RenderDescriptor>> = {
   enemy: { shape: 'circle', colorToken: 'enemy' },
   regularProjectile: { shape: 'rect', colorToken: 'regularProjectile' },
   skillProjectile: { shape: 'rect', colorToken: 'skillProjectile' },
+  enemyProjectile: { shape: 'circle', colorToken: 'enemyProjectile' },
 };
 
 /**

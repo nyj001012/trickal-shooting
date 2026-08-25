@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { aabbOverlap, detectCollisions } from '@/game/systems/collision';
 import {
   makeEnemy,
+  makeEnemyProjectile,
   makePlayer,
   makeRegularProjectile,
   makeSkillProjectile,
@@ -114,5 +115,55 @@ describe('detectCollisions — separated projectile hit lists', () => {
     detectCollisions(world);
 
     expect(world).toEqual(before);
+  });
+});
+
+describe('detectCollisions — enemy projectile x player overlaps (issue #17, EnemyProjectileHit)', () => {
+  it('reports an alive enemy projectile x player overlap independently of the other hit lists', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
+    const enemyProjectile = makeEnemyProjectile({ id: 6, x: 200, y: 200, width: 10, height: 10 });
+    const world = makeWorld({ player, enemyProjectiles: [enemyProjectile] });
+
+    const result = detectCollisions(world);
+
+    expect(result.enemyProjectileHits).toHaveLength(1);
+    expect(result.enemyProjectileHits[0].projectile.id).toBe(6);
+    expect(result.playerContacts).toHaveLength(0);
+    expect(result.regularProjectileHits).toHaveLength(0);
+    expect(result.skillProjectileHits).toHaveLength(0);
+  });
+
+  it('ignores a dead enemy projectile even when its AABB overlaps the player', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
+    const deadProjectile = makeEnemyProjectile({ id: 7, x: 200, y: 200, alive: false });
+    const world = makeWorld({ player, enemyProjectiles: [deadProjectile] });
+
+    const result = detectCollisions(world);
+
+    expect(result.enemyProjectileHits).toHaveLength(0);
+  });
+
+  it('does not report a hit for an enemy projectile that merely touches the player at an edge (strict boundary rule)', () => {
+    const player = makePlayer({ x: 0, y: 0, width: 10, height: 10 });
+    const touching = makeEnemyProjectile({ id: 8, x: 10, y: 0, width: 10, height: 10 }); // b.x === a.x + a.width
+    const world = makeWorld({ player, enemyProjectiles: [touching] });
+
+    const result = detectCollisions(world);
+
+    expect(result.enemyProjectileHits).toHaveLength(0);
+  });
+
+  it('reports multiple simultaneous enemy projectile hits against the single player', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
+    const first = makeEnemyProjectile({ id: 9, x: 200, y: 200 });
+    const second = makeEnemyProjectile({ id: 10, x: 210, y: 210 });
+    const world = makeWorld({ player, enemyProjectiles: [first, second] });
+
+    const result = detectCollisions(world);
+
+    expect(result.enemyProjectileHits).toHaveLength(2);
+    expect(result.enemyProjectileHits.map((hit) => hit.projectile.id).sort((a, b) => a - b)).toEqual([
+      9, 10,
+    ]);
   });
 });
