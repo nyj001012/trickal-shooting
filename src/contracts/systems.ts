@@ -248,17 +248,18 @@ export type FireEnemyProjectiles = (world: GameWorld, dt: number, rng: Rng) => v
  * `projFireCooldownRemainSec` is initialized to the same current-level fire interval
  * formula used by `FireEnemyProjectiles` (see that type's `@module` doc), so a
  * newly-spawned enemy does not fire in the same tick it spawns.
- * A newly-created enemy's action-related fields (`action`, `actionRemainSec`, `dashVx`,
+ * A newly-created enemy's action-related fields (`action`, `actionInitialized`, `dashVx`,
  * `dashVy`, `oscillateBaseY`, `oscillatePhaseSec`, `circleCenterX`, `circleCenterY`,
  * `circleAngleRad`, `circleDir`) are initialized to trivial placeholders — any valid
- * `EntityKind`-consistent values are acceptable as long as `actionRemainSec` is exactly
- * `0` — because `applyMovement` already ran earlier in this same tick (before
+ * `EntityKind`-consistent values are acceptable as long as `actionInitialized` is exactly
+ * `false` — because `applyMovement` already ran earlier in this same tick (before
  * `spawnTick`, per the System Execution Order) and therefore never reads a
  * same-tick-spawned enemy's placeholders, and `updateEnemyAi` (which runs immediately
- * after `spawnTick` in the same tick) is guaranteed to fully re-roll every one of those
- * fields the instant it sees `actionRemainSec <= 0` (issue #19, INV-EAI-1 — "스폰 직후
- * 즉시" is satisfied by this same-tick placeholder-then-reselect handoff, not by
- * `spawnTick` picking real values itself).
+ * after `spawnTick` in the same tick) is guaranteed to fully select every one of those
+ * fields exactly once, the instant it sees `actionInitialized === false` (issue #19,
+ * INV-EAI-1 — "스폰 직후 단 1회" is satisfied by this same-tick placeholder-then-select
+ * handoff, not by `spawnTick` picking real values itself). Once selected, this enemy's
+ * `updateEnemyAi` never touches these fields again for the rest of its lifetime.
  * @mutates world.spawner, world.enemies, world.nextEntityId
  * @module @/game/systems/spawner
  */
@@ -269,24 +270,24 @@ export type SpawnTick = (world: GameWorld, dt: number, rng: Rng) => void;
 // ---------------------------------------------------------------------------
 
 /**
- * Randomized enemy movement-behavior selection (issue #19). Runs once per tick, after
- * `spawnTick` and before `detectCollisions`, and is the ONLY system allowed to consume
- * `rng` on behalf of enemy behavior selection — `applyMovement` (which runs earlier,
- * before `spawnTick`, in the same tick) never receives an `rng` argument and only
- * integrates positions from whatever action fields this system set on a PRIOR tick
- * (see `ApplyMovement`'s JSDoc for the exact one-tick-lag data-flow rationale).
+ * One-time-per-enemy movement-behavior selection (issue #19, amended: the original
+ * periodic re-roll was removed). Runs once per tick, after `spawnTick` and before
+ * `detectCollisions`, and is the ONLY system allowed to consume `rng` on behalf of enemy
+ * behavior selection — `applyMovement` (which runs earlier, before `spawnTick`, in the
+ * same tick) never receives an `rng` argument and only integrates positions from
+ * whatever action fields this system set, once, on a PRIOR tick (see `ApplyMovement`'s
+ * JSDoc for the exact one-tick-lag data-flow rationale).
  *
  * For every alive enemy, in `world.enemies` array order:
- * 1. Decrement `actionRemainSec` by `dt`, floored at 0.
- * 2. If the result is `> 0`, do nothing further for this enemy this tick (no `rng`
- *    consumed).
- * 3. Otherwise (`<= 0`, including every newly-spawned enemy's placeholder — INV-EAI-1),
- *    re-roll in this exact order, consuming `rng` exactly once per numbered step below:
+ * 1. If `actionInitialized === true`, do nothing further for this enemy this tick (no
+ *    `rng` consumed, no field touched — the enemy's `action` and every action-derived
+ *    field are permanent for the rest of its lifetime, INV-EAI-1).
+ * 2. Otherwise (`actionInitialized === false`, true for every newly-spawned enemy this
+ *    tick — INV-EAI-1), select in this exact order, consuming `rng` exactly once per
+ *    numbered step below, then set `actionInitialized = true`:
  *    a. `actionIndex = Math.min(2, Math.floor(rng() * 3))` against the fixed table
  *       `0: 'dash', 1: 'oscillate', 2: 'circle'`; set `action` to the result.
- *    b. `actionRemainSec = BalanceConfig.enemyAi.actionDurationMinSec + rng() *
- *       (BalanceConfig.enemyAi.actionDurationMaxSec - BalanceConfig.enemyAi.actionDurationMinSec)`.
- *    c. Exactly one of the following, depending on the `action` chosen in step (a):
+ *    b. Exactly one of the following, depending on the `action` chosen in step (a):
  *       - `'dash'`: draw one more `rng()` call for the direction index. While
  *         `world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel`:
  *         `index4 = Math.min(3, Math.floor(rng() * 4))`, mapped through `[0, 2, 4, 6]`
@@ -303,11 +304,15 @@ export type SpawnTick = (world: GameWorld, dt: number, rng: Rng) => void;
  *         exactly on the new orbit with no visible jump —
  *         `circleCenterX = (x + width / 2) - BalanceConfig.enemyAi.circleRadiusPx` and
  *         `circleCenterY = y + height / 2` (INV-EAI-4).
+ *    c. `actionInitialized = true` — from this point on, step 1 above short-circuits for
+ *       this enemy for the rest of its lifetime; none of these fields are ever
+ *       re-selected or mutated by this system again.
  *
- * A reselecting enemy consumes `rng` exactly 2 times (`'oscillate'`) or exactly 3 times
- * (`'dash'` or `'circle'`); a non-reselecting enemy consumes 0. The same initial seed,
- * world, input, and tick count always reproduce the same sequence of action choices.
- * @mutates world.enemies[].action, world.enemies[].actionRemainSec,
+ * An enemy being initialized this tick consumes `rng` exactly 1 time (`'oscillate'`) or
+ * exactly 2 times (`'dash'` or `'circle'`); an already-initialized enemy consumes 0, on
+ * every subsequent tick for the rest of its life. The same initial seed, world, input,
+ * and spawn sequence always reproduce the same per-enemy action selection.
+ * @mutates world.enemies[].action, world.enemies[].actionInitialized,
  *          world.enemies[].dashVx, world.enemies[].dashVy,
  *          world.enemies[].oscillateBaseY, world.enemies[].oscillatePhaseSec,
  *          world.enemies[].circleCenterX, world.enemies[].circleCenterY,

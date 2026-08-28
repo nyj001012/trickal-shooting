@@ -104,10 +104,6 @@ export interface EnemyBalance {
  * consume these values.
  */
 export interface EnemyAiBalance {
-  /** sec; lower bound of the random duration rolled for the newly-(re)selected action. */
-  readonly actionDurationMinSec: number;
-  /** sec; upper bound (exclusive) of that same random duration roll. */
-  readonly actionDurationMaxSec: number;
   /**
    * integer level threshold. While `world.session.level < dashOctoDirectionLevel`, a
    * newly-selected DASH direction is drawn only from the 4 cardinal compass directions
