@@ -8,17 +8,18 @@
 
 | 타입                | 주요 필드                                                                                                       | 의미                                             |
 | ------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `enemyProjectiles`, `session`, `spawner`, `nextEntityId` | 한 플레이 세션의 전체 인메모리 상태              |
+| `GameWorld`         | `bounds`, `player`, `enemies`, `regularProjectiles`, `skillProjectiles`, `enemyProjectiles`, `healingItems`, `session`, `spawner`, `nextEntityId` | 한 플레이 세션의 전체 인메모리 상태              |
 | `GameSession`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | HUD와 진행 상태의 SSOT                           |
 | `Player`            | 공통 Box 필드, `regularFireCooldownRemainSec`, `skillFireCooldownRemainSec`, `isSkillFiring`, `invulnRemainSec` | 플레이어 엔티티                                  |
 | `Enemy`             | 공통 Box 필드, `hp`, `scoreValue`, `manaGain`, `contactDamage`, readonly `projSpeed`, `projFireCooldownRemainSec`, `action`, `actionInitialized`, `dashVx`, `dashVy`, `oscillateBaseY`, `oscillatePhaseSec`, `circleCenterX`, `circleCenterY`, `circleAngleRad`, `circleDir` | 스폰 직후 단 1회만 DASH/OSCILLATE/CIRCLE 중 하나를 선택하고 살아있는 동안 절대 재선택하지 않는 적. 주기적으로 8방향 투사체도 발사한다(issue #17/19). |
 | `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄                         |
 | `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`, `targetId`, readonly 원·근거리 조향 튜닝              | 생존 적을 락온하고 근거리 회전력을 높이는 스킬탄 |
 | `EnemyProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`                                                        | 적이 8방향으로 발사하는 직진 투사체, 4변 이탈 소멸 |
+| `HealingItem`       | 공통 Box 필드, `vx`, `vy`                                                                                      | 적 처치 시 드롭되는 회복 젤리, 좌하향 이동, 좌측·하단 이탈 소멸 (issue #21) |
 | `InputState`        | `up`, `down`, `left`, `right`, `skill`, `restart`                                                               | DOM 코드에서 변환된 의미 기반 입력               |
 | `HudSnapshot`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | React가 구독하는 읽기 전용 투영                  |
 
-모든 엔티티는 재사용되지 않는 `id`, 판별자 `kind`, 지연 제거용 `alive`를 갖는다. `Entity`는 `Player | Enemy | RegularProjectile | SkillProjectile` 판별 유니온이다.
+모든 엔티티는 재사용되지 않는 `id`, 판별자 `kind`, 지연 제거용 `alive`를 갖는다. `Entity`는 `Player | Enemy | RegularProjectile | SkillProjectile | EnemyProjectile | HealingItem` 판별 유니온이다.
 
 ## 월드와 유틸리티 API
 
@@ -36,13 +37,13 @@
 | import                       | 시그니처 요약                              | 변경 대상                                       |
 | ---------------------------- | ------------------------------------------ | ----------------------------------------------- |
 | `@/game/systems/collision`   | `aabbOverlap(a, b): boolean`               | 없음                                            |
-| `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음, 탄종별 hit 배열 반환                      |
+| `@/game/systems/collision`   | `detectCollisions(world): CollisionResult` | 없음, 탄종별 hit 배열·플레이어 젤리 획득 배열 반환 (issue #21) |
 | `@/game/systems/weapon`        | `fireWeapon(world, input, dt, rng): void`  | 두 쿨다운·스킬 상태, MANA, 탄종별 배열, 다음 ID |
 | `@/game/systems/enemyWeapon`   | `fireEnemyProjectiles(world, dt, rng): void` | 각 적의 쿨다운·발사 주기(현재 레벨 기반), 8방향 선택, 투사체 배열 |
 | `@/game/systems/movement`      | `applyMovement(world, input, dt): void`    | 엔티티 좌표·수명·스킬탄 속도·락온, 이탈 적·투사체 제거 |
 | `@/game/systems/spawner`     | `spawnTick(world, dt, rng): void`          | 스폰 타이머, 적 배열, 다음 ID                   |
 | `@/game/systems/enemyAi`     | `updateEnemyAi(world, dt, rng): void`      | 스폰 직후 `actionInitialized === false`인 적의 최초 행동 선택(DASH/OSCILLATE/CIRCLE), 관련 필드 초기화. 재선택 없음 (issue #19) |
-| `@/game/systems/combat`      | `applyCombat(world, collisions, dt): void` | HP, 적·탄종별 생존, SCORE·MANA, 무적 시간       |
+| `@/game/systems/combat`      | `applyCombat(world, collisions, dt, rng): void` | HP, 적·탄종별 생존, SCORE·MANA, 무적 시간, 회복 젤리 드롭 (issue #21) |
 | `@/game/systems/progression` | `applyProgression(world): void`            | MANA 포화, LEVEL·스폰 주기, 게임 상태           |
 
 ### 충돌 경계
@@ -61,6 +62,12 @@
 - HP 감소는 적 접촉 피해와 적 투사체 피격으로 발생한다. 무적 시간은 두 피해 원천을 공유하며, 같은 틱에 두 피해가 동시에 도착해도 HP 감소는 최대 1회다.
 - 적 투사체는 무적 시간과 무관하게 항상 소멸한다.
 - HP는 0 아래로 내려가지 않는다.
+
+### 회복 젤리 획득 규칙
+
+- 적이 **투사체 히트(일반탄 또는 스킬탄)** 로 인해 처치될 때만 10% 확률로 그 위치(중심)에서 회복 젤리가 드롭된다. 적 접촉 피해로 처치될 때는 드롭되지 않는다 (INV-ITEM-1).
+- 젤리는 좌측(`vx = -90 px/sec`)과 하단(`vy = 120 px/sec`)으로 등속 대각선 이동한다. 화면 경계 클램프가 전혀 적용되지 않으며, 좌측(`x + width < 0`) 또는 하단(`y >= bounds.height`)을 완전히 벗어나면 소멸한다 (INV-ITEM-2).
+- 플레이어가 젤리와 접촉하면: 현재 HP가 최대 HP 미만이면 HP 1을 회복하고, 이미 최대 HP이면 대신 보너스 점수 500점을 획득한다. 두 경우 모두 젤리는 소멸한다 (INV-ITEM-3).
 
 ### 일반탄·스킬탄 발사 규칙
 
@@ -131,6 +138,8 @@ await page.evaluate(() => window.__TRICKAL_TEST__?.stepFrames(100));
 
 ## 밸런스 계약
 
-실제 값은 `src/game/balance.ts`의 `BALANCE`에 있고 `BalanceConfig`를 만족해야 한다. 그룹은 `canvas`, `player`, `regularProjectile`, `skillProjectile`, `enemy`, `enemyProjectile`, `spawn`, `progression`, `limits`, `loop`이며 키 이름이나 구조를 바꾸려면 계약 개정이 필요하다.
+실제 값은 `src/game/balance.ts`의 `BALANCE`에 있고 `BalanceConfig`를 만족해야 한다. 그룹은 `canvas`, `player`, `regularProjectile`, `skillProjectile`, `enemy`, `enemyAi`, `healingItem`, `enemyProjectile`, `spawn`, `progression`, `limits`, `loop`이며 키 이름이나 구조를 바꾸려면 계약 개정이 필요하다.
+
+`healingItem` 그룹의 주요 키는 `dropChance`(투사체 처치 시 드롭 확률), `width`, `height`, `driftVx`(좌측 속도), `fallVy`(하강 속도), `healAmount`(회복량), `fullHpBonusScore`(최대 HP 보너스 점수) 등이다 (issue #21).
 
 `enemyProjectile` 그룹의 주요 키는 `speedBase`, `speedPerLevel`, `speedMax`(발사 시점 스냅샷으로 계산, 불변), `fireIntervalBase`, `fireIntervalDecayPerLevel`, `fireIntervalMinSec`(발사 주기 리셋마다 현재 레벨로 재계산), `damage`, `lifetimeSec` 등이다. 상세한 권장 수치는 `.claude/_workspace/03_contracts/invariants.md`의 4장 "밸런스 계약 권장 수치"를 참고한다.
