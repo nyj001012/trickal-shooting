@@ -15,7 +15,14 @@
  * Declarations only — see the header rules in `entities.ts`.
  */
 
-import type { Box, Enemy, EnemyProjectile, RegularProjectile, SkillProjectile } from './entities';
+import type {
+  Box,
+  Enemy,
+  EnemyProjectile,
+  HealingItem,
+  RegularProjectile,
+  SkillProjectile,
+} from './entities';
 import type { GameWorld, InputState, Rng } from './world';
 
 // ---------------------------------------------------------------------------
@@ -49,12 +56,22 @@ export interface EnemyProjectileHit {
   readonly projectile: Readonly<EnemyProjectile>;
 }
 
+/**
+ * The player overlapped one alive `HealingItem` this tick (issue #21). Same pattern as
+ * `PlayerContact`: only `world.player` participates (never an array entry on the other
+ * side of a projectile), so there is no `enemy`-style companion field.
+ */
+export interface PlayerItemPickup {
+  readonly item: Readonly<HealingItem>;
+}
+
 /** Everything `combat.ts` needs to apply the effects of this tick's overlaps. */
 export interface CollisionResult {
   readonly regularProjectileHits: readonly RegularProjectileHit[];
   readonly skillProjectileHits: readonly SkillProjectileHit[];
   readonly playerContacts: readonly PlayerContact[];
   readonly enemyProjectileHits: readonly EnemyProjectileHit[];
+  readonly playerItemPickups: readonly PlayerItemPickup[];
 }
 
 /**
@@ -85,11 +102,13 @@ export type AabbOverlap = (a: Readonly<Box>, b: Readonly<Box>) => boolean;
 
 /**
  * Independently scans `world.regularProjectiles` and `world.skillProjectiles` against
- * `world.enemies`, scans `world.player` against `world.enemies` (`playerContacts`), and
- * scans `world.enemyProjectiles` against `world.player` (`enemyProjectileHits` — a
- * distinct path from `playerContacts`, issue #17 requirement 4). Only alive entities
- * participate. Performs no mutation or removal and keeps all hit lists separate for
- * `combat.ts`. Uses `AabbOverlap`'s strict boundary rule everywhere.
+ * `world.enemies`, scans `world.player` against `world.enemies` (`playerContacts`), scans
+ * `world.enemyProjectiles` against `world.player` (`enemyProjectileHits` — a distinct path
+ * from `playerContacts`, issue #17 requirement 4), and — only while `world.player.alive`
+ * — scans `world.player` against every alive `world.healingItems` entry
+ * (`playerItemPickups`, issue #21, same scan pattern as `playerContacts`). Only alive
+ * entities participate. Performs no mutation or removal and keeps all hit lists separate
+ * for `combat.ts`. Uses `AabbOverlap`'s strict boundary rule everywhere.
  * @module @/game/systems/collision
  */
 export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
@@ -143,6 +162,13 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *      the playfield through ANY of the 4 edges — `x + width < 0 || x > bounds.width ||
  *      y + height < 0 || y > bounds.height` — or at lifetime zero (INV-EPROJ-3). This is
  *      unlike regular projectiles, which only ever check the right edge.
+ *   6. Healing items (issue #21): move every alive item by `x += vx * dt; y += vy * dt`
+ *      using its fixed `vx`/`vy` (never re-derived or steered — set once at creation by
+ *      `combat.ts` and never touched again). No boundary clamp is applied on ANY edge
+ *      (unlike every other entity kind). Expire it (`alive = false`) the tick it exits
+ *      through the left edge (`x + width < 0`) OR the bottom edge (`y > bounds.height`) —
+ *      the top and right edges are never checked, and there is no lifetime timer for this
+ *      kind (INV-ITEM-2).
  * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].y,
  *          world.enemies[].alive, world.enemies[].oscillatePhaseSec,
  *          world.enemies[].circleAngleRad, world.enemies[].circleCenterX,
@@ -152,7 +178,8 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *          world.skillProjectiles[].vy, world.skillProjectiles[].targetId,
  *          world.skillProjectiles[].lifetimeRemainSec, world.skillProjectiles[].alive,
  *          world.enemyProjectiles[].x, world.enemyProjectiles[].y,
- *          world.enemyProjectiles[].lifetimeRemainSec, world.enemyProjectiles[].alive
+ *          world.enemyProjectiles[].lifetimeRemainSec, world.enemyProjectiles[].alive,
+ *          world.healingItems[].x, world.healingItems[].y, world.healingItems[].alive
  * @module @/game/systems/movement
  */
 export type ApplyMovement = (world: GameWorld, input: Readonly<InputState>, dt: number) => void;
@@ -336,13 +363,24 @@ export type UpdateEnemyAi = (world: GameWorld, dt: number, rng: Rng) => void;
 /**
  * In order: (1) decrement `world.player.invulnRemainSec` by `dt` (floored at 0);
  * (2) apply regular-projectile hits, marking each projectile dead and granting both score
- * and saturated mana when a live enemy dies; (3) apply skill-projectile hits independently,
- * granting score but no mana when a live enemy dies; (4) for each `PlayerContact`, only
- * if `world.player.invulnRemainSec <= 0`: reduce
+ * and saturated mana when a live enemy dies — for EACH enemy that dies in this step
+ * (issue #21), immediately after that enemy's `alive` is set to `false`, consume `rng`
+ * exactly once: if `rng() < BalanceConfig.healingItem.dropChance`, create one
+ * `HealingItem` (`id = world.nextEntityId++`, size from
+ * `BalanceConfig.healingItem.width`/`height` centered on the dead enemy's AABB center,
+ * `vx = BalanceConfig.healingItem.driftVx`, `vy = BalanceConfig.healingItem.fallVy`) and
+ * push it onto `world.healingItems` (INV-ITEM-1); (3) apply skill-projectile hits
+ * independently, granting score but no mana when a live enemy dies, applying the
+ * IDENTICAL per-death drop-chance roll described in step 2 (one `rng()` call per enemy
+ * that dies in this step, same formula, same push target — INV-ITEM-1; the two loops run
+ * in this fixed order, regular hits first, skill hits second); (4) for each
+ * `PlayerContact`, only if `world.player.invulnRemainSec <= 0`: reduce
  * `world.session.hp` by the enemy's `contactDamage` (floored at 0), mark that enemy
  * `alive = false`, and reset `world.player.invulnRemainSec` to
  * `BalanceConfig.player.invulnSec` (INV-DMG-1). Contacts arriving while already
- * invulnerable still remove the contacting enemy but cause no further HP loss.
+ * invulnerable still remove the contacting enemy but cause no further HP loss. A
+ * contact-kill never rolls for a healing-item drop (only the projectile-kill paths in
+ * steps 2/3 do).
  * (5) for each `EnemyProjectileHit`: ALWAYS mark that projectile `alive = false`
  * (consumed on hit regardless of invulnerability, mirroring step 4's contact-removal
  * behavior — a hit projectile never lingers to hit again), and only if
@@ -352,19 +390,26 @@ export type UpdateEnemyAi = (world: GameWorld, dt: number, rng: Rng) => void;
  * (INV-EPROJ-4). `EnemyProjectileHit` and `PlayerContact` share the exact same
  * `world.player.invulnRemainSec` state — because step 4 runs first, a contact hit and an
  * enemy-projectile hit landing in the same tick never stack HP loss.
+ * (6) for each `PlayerItemPickup` (issue #21), LAST: if
+ * `world.session.hp < world.session.maxHp`, increment `world.session.hp` by
+ * `BalanceConfig.healingItem.healAmount` (capped at `maxHp`); otherwise add
+ * `BalanceConfig.healingItem.fullHpBonusScore` to `world.session.score`. Either way mark
+ * that `HealingItem.alive = false`. This step never consumes `rng` (INV-ITEM-3).
  * All hit lists come from `DetectCollisions`, so a merely-touching (edge/corner,
  * zero-area) pair never appears here in the first place — this function never needs to
  * re-check the boundary rule itself.
  * @mutates world.enemies[].hp, world.enemies[].alive,
  *          world.regularProjectiles[].alive, world.skillProjectiles[].alive,
- *          world.enemyProjectiles[].alive, world.session.score, world.session.mana,
- *          world.session.hp, world.player.invulnRemainSec
+ *          world.enemyProjectiles[].alive, world.healingItems, world.healingItems[].alive,
+ *          world.session.score, world.session.mana, world.session.hp,
+ *          world.player.invulnRemainSec, world.nextEntityId
  * @module @/game/systems/combat
  */
 export type ApplyCombat = (
   world: GameWorld,
   collisions: Readonly<CollisionResult>,
   dt: number,
+  rng: Rng,
 ) => void;
 
 // ---------------------------------------------------------------------------
@@ -397,7 +442,9 @@ export type ApplyProgression = (world: GameWorld) => void;
  * `spawnTick` (4), `updateEnemyAi` (5), `detectCollisions` (6), `applyCombat` (7),
  * `applyProgression` (8), dead-entity sweep (9) — see invariants.md for the full,
  * authoritative sequence and the rationale for placing `updateEnemyAi` after
- * `spawnTick`/before `detectCollisions`.
+ * `spawnTick`/before `detectCollisions`. As of issue #21, step 7 (`applyCombat`) also
+ * receives this same `rng` (healing-item drop-chance rolls, INV-ITEM-1) and step 9's
+ * dead-entity sweep also filters `world.healingItems`.
  * A no-op when `world.session.status !== 'playing'` (D-6 — a finished/errored world does
  * not keep simulating). `dt` is always the fixed step in seconds
  * (`BalanceConfig.loop.FIXED_STEP_MS / 1000`), never a raw frame delta (§6.2).
@@ -417,7 +464,8 @@ export type StepWorld = (
 
 /**
  * Builds a brand-new `GameWorld` in its initial state: empty `enemies`,
- * `regularProjectiles`, `skillProjectiles`, and `enemyProjectiles`; `player` at
+ * `regularProjectiles`, `skillProjectiles`, `enemyProjectiles`, and `healingItems`
+ * (issue #21); `player` at
  * `BalanceConfig.player.spawnX/spawnY` with both cooldowns and invulnerability zeroed,
  * `isSkillFiring: false`,
  * `session` at `{ hp: maxHp, mana: 0, score: 0, level: 1, status: 'playing' }`, and

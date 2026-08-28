@@ -18,13 +18,14 @@
 4. spawnTick(world, dt, rng)                  // game/systems/spawner.ts
 5. updateEnemyAi(world, dt, rng)              // game/systems/enemyAi.ts    ★issue #19 신설
 6. const collisions = detectCollisions(world) // game/systems/collision.ts (읽기 전용)
-7. applyCombat(world, collisions, dt)         // game/systems/combat.ts
+7. applyCombat(world, collisions, dt, rng)    // game/systems/combat.ts        ★issue #21: rng 인자 신설
 8. applyProgression(world)                    // game/systems/progression.ts
 9. prune dead entities:                       // stepWorld.ts 내부(비공개 헬퍼, 별도 계약 타입 없음)
    world.enemies = world.enemies.filter(e => e.alive)
    world.regularProjectiles = world.regularProjectiles.filter(p => p.alive)
    world.skillProjectiles = world.skillProjectiles.filter(p => p.alive)
    world.enemyProjectiles = world.enemyProjectiles.filter(p => p.alive)
+   world.healingItems = world.healingItems.filter(p => p.alive)              // ★issue #21 신설
 ```
 
 **근거 및 주의사항**
@@ -35,7 +36,7 @@
 - 8(진행도)이 7(전투) 다음인 이유: 전투에서 갱신된 `session.score`/`mana`/`hp`를 기준으로 레벨업·MANA 포화·게임오버 전이를 같은 틱 안에 반영한다.
 - **엔티티 제거는 순회 중 `splice` 금지, 틱 말미 일괄 `filter`만 허용**(§6.4). 1~8 사이에서는 `alive` 플래그만 뒤집는다.
 - **입력 반영**은 별도 시스템 단계가 아니다. `input: Readonly<InputState>`는 이미 `hooks/useKeyboardInput.ts`가 만들어 `stepWorld` 호출 시점에 인자로 주입한 상태다. 이동 시스템은 방향 입력을, 무기 시스템은 `skill` 입력을 읽는다. 일반탄은 스킬 비활성 상태에서 자동 발사한다. `fireEnemyProjectiles`와 `updateEnemyAi`는 `InputState`를 전혀 참조하지 않는다(적 발사·적 행동 선택은 플레이어 입력과 무관).
-- 하나의 주입형 `rng` 스트림을 1, 2, 4, 5가 순서대로 공유한다. 1은 실제 스킬탄이 배열에 추가되는 틱에만 정확히 1회 소비하고, 2는 그 틱에 실제로 발사하는 각 살아있는 적마다(`world.enemies` 배열 순서로) 방향 선택에 정확히 1회씩 소비하며, 4는 실제 적 스폰에 필요한 난수를 소비하고, 5는 그 틱에 `actionInitialized === false`인(즉 아직 첫 행동을 배정받지 않은) 각 적마다(`world.enemies` 배열 순서로) 정확히 1회(OSCILLATE) 또는 2회(DASH/CIRCLE) 소비하며 이후 그 적에 대해서는 다시는 소비하지 않는다(INV-EAI-1). 같은 초기 월드·입력·시드·틱 수는 동일한 발사 확산·적 발사 방향·스폰·적 행동 배정 시퀀스를 재현한다.
+- 하나의 주입형 `rng` 스트림을 1, 2, 4, 5, 7이 순서대로 공유한다(★7은 issue #21로 신설된 소비 지점). 1은 실제 스킬탄이 배열에 추가되는 틱에만 정확히 1회 소비하고, 2는 그 틱에 실제로 발사하는 각 살아있는 적마다(`world.enemies` 배열 순서로) 방향 선택에 정확히 1회씩 소비하며, 4는 실제 적 스폰에 필요한 난수를 소비하고, 5는 그 틱에 `actionInitialized === false`인(즉 아직 첫 행동을 배정받지 않은) 각 적마다(`world.enemies` 배열 순서로) 정확히 1회(OSCILLATE) 또는 2회(DASH/CIRCLE) 소비하며 이후 그 적에 대해서는 다시는 소비하지 않는다(INV-EAI-1). 7은 `regularProjectileHits` 처리 중 죽는 각 적마다 정확히 1회, 이어서(반드시 그 다음) `skillProjectileHits` 처리 중 죽는 각 적마다 정확히 1회씩 회복 젤리 드롭 확률 판정에 소비한다(순서는 항상 regular 먼저, skill 다음 — INV-ITEM-1). `PlayerContact`로 죽는 적과 `PlayerItemPickup` 처리는 `rng`를 전혀 소비하지 않는다. 같은 초기 월드·입력·시드·틱 수는 동일한 발사 확산·적 발사 방향·스폰·적 행동 배정·젤리 드롭 시퀀스를 재현한다.
 - `dt`는 항상 고정 스텝(`BalanceConfig.loop.FIXED_STEP_MS / 1000`)이며, 가변 프레임 델타를 그대로 넘기지 않는다(§6.2 누산기 패턴은 `hooks/useGameLoop.ts` 책임).
 
 ---
@@ -302,6 +303,73 @@ if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없
 - `INV-ESCAPE-1`이 정의하는 "좌측 완전 이탈 시 세션에 부수효과 없이 제거"는 세 행동 전부에 동일하게, 조건 없이 적용된다 — DASH가 우연히 왼쪽으로 향하든, OSCILLATE/CIRCLE의 좌측 드리프트로 서서히 벗어나든 판정식은 동일하다.
 - 테스트 관점: 세 행동 각각에 대해 (a) 화면 상단/하단 경계 밖으로 나가려는 입력값에서도 다음 틱 `y`가 `[0, bounds.height - height]`를 벗어나지 않는지, (b) 우측 경계를 넘어서려는 상태에서 `x`가 `bounds.width - width`를 초과하지 않는지, (c) 좌측으로 `width`만큼 완전히 벗어난 다음 틱에 `alive === false`가 되는지를 개별 검증한다.
 
+### INV-ITEM-1 — 회복 젤리 드롭 확률: 처치당 정확히 1회, 투사체 처치만 (issue #21)
+
+`applyCombat`이 `regularProjectileHits` 또는 `skillProjectileHits`를 처리하다가 살아 있던 적을 `alive = false`로 표시하는 바로 그 순간마다(두 처치 경로 각각 독립적으로), 그 즉시 `rng`를 정확히 1회 소비해 아래를 판정한다.
+
+```
+if (rng() < BalanceConfig.healingItem.dropChance) {
+  const centerX = deadEnemy.x + deadEnemy.width / 2
+  const centerY = deadEnemy.y + deadEnemy.height / 2
+  world.healingItems.push({
+    kind: 'healingItem',
+    id: world.nextEntityId++,
+    alive: true,
+    width: BalanceConfig.healingItem.width,
+    height: BalanceConfig.healingItem.height,
+    x: centerX - BalanceConfig.healingItem.width / 2,
+    y: centerY - BalanceConfig.healingItem.height / 2,
+    vx: BalanceConfig.healingItem.driftVx,
+    vy: BalanceConfig.healingItem.fallVy,
+  })
+}
+```
+
+- **처치 경로 한정:** 이 판정은 오직 투사체 처치(일반탄·스킬탄)에서만 일어난다. `PlayerContact`로 죽는 적(접촉 즉사)은 이 판정을 거치지 않는다 — 접촉 처치는 애초에 `applyCombat`의 별도 소단계(§1 소단계 4)이며 젤리 드롭 로직과 무관하다.
+- **순서와 rng 소비 횟수:** `regularProjectileHits` 루프가 먼저 실행되고, 그 루프에서 죽는 각 적마다 정확히 1회 `rng`를 소비한다. 이어서 `skillProjectileHits` 루프가 실행되고, 마찬가지로 그 루프에서 죽는 각 적마다 정확히 1회 소비한다. 두 루프는 서로 독립적이며, 드롭 확률이 살아남은(=드롭하지 않은) 처치도 `rng` 소비는 정확히 1회로 동일하다(굴림 자체는 항상 일어나고, 그 결과만 성공/실패로 갈린다).
+- **`fullHpBonusScore`/`healAmount`와 무관:** 드롭 판정 자체는 플레이어의 현재 HP나 MANA와 무관하게 항상 수행된다. HP 포화 여부는 오직 획득(pickup, INV-ITEM-3) 시점에만 영향을 준다.
+- 테스트 관점: 고정 시드에서 정확히 1개의 적이 일반탄에 맞아 죽는 시나리오를 반복 실행하면, `rng` 소비 횟수가 정확히 1이고, `dropChance` 임계값을 오가는 시드 조작으로 `world.healingItems.length`가 0 또는 1이 되는 두 경우를 모두 재현할 수 있어야 한다.
+
+### INV-ITEM-2 — 회복 젤리 이동·소멸: 좌측 드리프트 + 하강, 클램프 없음, 좌/하단 이탈 시 소멸 (issue #21)
+
+`applyMovement`는 매 틱 모든 살아 있는 `HealingItem`에 대해 다음을 수행한다(적용 순서: 위치 적분 → 이탈 검사).
+
+```
+item.x += item.vx * dt   // vx는 항상 음수(좌측 드리프트), 스폰 시 고정, 재조향 없음
+item.y += item.vy * dt   // vy는 항상 양수(하강), 스폰 시 고정, 재조향 없음
+if (item.x + item.width < 0 || item.y > world.bounds.height) {
+  item.alive = false
+}
+```
+
+- **클램프가 전혀 없다.** 다른 모든 엔티티(플레이어 INV-MOVE-2, 적 INV-EAI-5, 각 투사체)와 달리 `HealingItem`은 상/하/좌/우 어느 경계에도 클램프되지 않는다 — 화면 밖으로 자유롭게 나갈 수 있다.
+- **소멸 조건은 좌측과 하단 두 곳뿐이다.** 좌측 완전 이탈(`x + width < 0`, 적의 좌측 이탈 규칙과 동일한 형태) 또는 하단 이탈(`y > world.bounds.height`, 상단 경계는 검사하지 않음 — 항상 아래로만 떨어지므로 상단 이탈은 발생하지 않는다)에서 소멸한다. 우측 이탈 검사는 없다 — `vx`가 항상 음수이므로 우측으로는 애초에 나가지 않는다.
+- **lifetime 타이머가 없다.** 다른 투사체류(`lifetimeRemainSec`)와 달리 `HealingItem`에는 자동 만료 안전망 필드 자체가 없다 — 오직 좌/하단 이탈만이 소멸 조건이다.
+- 세션 부수효과 없음: 좌/하단 이탈로 소멸하는 젤리는 획득이 아니므로 HP/MANA/SCORE를 전혀 변경하지 않는다(INV-ITEM-3의 획득 경로와 무관).
+- 테스트 관점: 고정 `vx`/`vy`로 여러 틱을 진행했을 때 클램프 없이 `x`/`y`가 화면 경계를 자유롭게 넘어서는지, 좌측 이탈과 하단 이탈 각각 독립적으로 `alive = false`를 유발하는지, 상단·우측으로는 애초에 이동하지 않으므로 해당 경계 이탈 케이스가 존재하지 않는지 확인한다.
+
+### INV-ITEM-3 — 회복 젤리 획득: HP 회복 또는 만피 보너스 점수, rng 미소비 (issue #21)
+
+`applyCombat`의 마지막 소단계(§1 소단계 6)는 `detectCollisions`가 만든 `playerItemPickups`(플레이어와 겹친, 살아 있는 `HealingItem` 각각)를 순회하며 다음을 적용한다.
+
+```
+for (const { item } of collisions.playerItemPickups) {
+  if (world.session.hp < world.session.maxHp) {
+    world.session.hp = Math.min(world.session.maxHp, world.session.hp + BalanceConfig.healingItem.healAmount)
+  } else {
+    world.session.score += BalanceConfig.healingItem.fullHpBonusScore
+  }
+  item.alive = false
+}
+```
+
+- **두 결과는 상호 배타적이다.** 한 번의 획득은 HP 회복 또는 SCORE 보너스 중 정확히 하나만 발생시킨다 — 만피 상태에서 회복량 일부만 HP로, 나머지를 점수로 분할 지급하지 않는다.
+- **판정 기준은 획득 시점의 `hp < maxHp` 여부다.** 같은 틱에 다른 처치로 `hp`가 먼저 오르는 등 순서 의존성이 있을 수 있으나, `applyCombat`은 항상 §1 소단계 순서(1→6)를 지키므로 이 판정은 그 틱의 다른 모든 HP 변경(소단계 4/5의 접촉·적 투사체 피해) 이후에 이뤄진다.
+- **MANA는 전혀 변경하지 않는다.** 젤리 획득은 MANA 보상 경로(INV-MANA-1의 일반탄 처치 보상)와 완전히 별개다.
+- **`rng`를 소비하지 않는다.** 드롭 판정(INV-ITEM-1)과 달리 획득 처리는 결정적이다 — 같은 픽업 목록에 대해 항상 같은 결과를 낸다.
+- 획득된 젤리는 무조건 `alive = false`로 소멸한다(HP 회복이든 SCORE 보너스든 동일).
+- 테스트 관점: (a) `hp < maxHp`일 때 픽업 후 `hp`가 정확히 `healAmount`만큼(단, `maxHp` 상한 이내로) 증가하고 `score`는 불변인지, (b) `hp === maxHp`일 때 픽업 후 `hp`는 불변이고 `score`가 정확히 `fullHpBonusScore`만큼 증가하는지, (c) 두 경우 모두 해당 `item.alive === false`이고 `rng` 호출 횟수가 0인지 확인한다.
+
 ### 부가 확인 사항 (불변식은 아니지만 리뷰·테스트 시 확인)
 - **투사체 방향:** 일반탄은 항상 `+x`로 직진한다. 스킬탄은 최초 획득한 살아 있는 적을 ID로 락온하고, 대상이 사라졌을 때만 최근접 적을 재획득한다. 중심 거리 150px 미만에서는 회전 계수를 0.3으로 높이고, 대상이 없을 때는 현재 관성을 유지한다. 최초·재획득 거리 제곱이 같으면 `enemies` 배열의 앞선 적을 선택한다.
 - **적 투사체 8방향 선택(issue #17, 결정적 rng 매핑):** `index = Math.floor(rng() * 8)`(이론상 `rng() === 1` 방지를 위해 7로 클램프)로 아래 고정 순서 테이블에서 방향 단위벡터를 고른다. 이 순서는 `src/contracts/systems.ts`의 `FireEnemyProjectiles` JSDoc과 정확히 동일하며, 순서를 바꾸면 계약 개정이 필요하다.
@@ -321,6 +389,7 @@ if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없
 - **월드 재생성 시 상태 누수 금지(D-6):** 재시작은 `createWorld()`가 반환하는 **완전히 새로운 객체**로 `useRef.current`를 교체한다. 기존 `GameWorld`의 필드를 하나씩 리셋하지 않는다.
 - **HUD 발행 스로틀 예외:** `status` 필드가 이전 스냅샷과 달라지는 `publish` 호출은 `HUD_PUBLISH_INTERVAL_MS` 스로틀을 무시하고 즉시 반영되어야 한다(구현은 `hooks/useGameLoop.ts` 쪽에서 "마지막 발행 이후 경과 시간 확인"과 별개로 "status 변경 여부"를 체크하는 방식을 권장. `hudStore.publish` 자체는 스로틀 로직을 갖지 않는다 — 호출측 책임).
 - **성능 예산(§6.10):** 1프레임의 `stepWorld` + `drawScene` 합계는 5ms 이내여야 한다. `BalanceConfig.limits.maxEnemies`/`maxRegularProjectiles`/`maxSkillProjectiles`를 초과하는 스폰/발사는 (에러를 던지지 않고) **조용히 스킵**한다.
+- **렌더 참고(issue #21, Phase 3 구현 담당자용 안내 — 상세 구현은 계약 범위 밖):** `render/palette.ts`에 `'healingItem'` 토큰(하늘색 `#87CEEB`) 추가 필요.
 
 ---
 
@@ -382,6 +451,13 @@ if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없
 | `enemyProjectile.fireIntervalBase` | `2.0` | sec, 레벨 1 기준 (INV-EPROJ-2, 매 리셋마다 현재 레벨로 재계산) |
 | `enemyProjectile.fireIntervalDecayPerLevel` | `0.08` | sec, 레벨당 단축량 |
 | `enemyProjectile.fireIntervalMinSec` | `0.6` | sec, 하한 |
+| `healingItem.dropChance` | `0.1` | 0-1 무차원, 투사체 처치당 드롭 확률 10% (issue #21, INV-ITEM-1) |
+| `healingItem.width` | `20` | px |
+| `healingItem.height` | `20` | px |
+| `healingItem.driftVx` | `-90` | px/sec, 좌측 드리프트 (참고 코드 프레임당 -1.5px * 60fps 환산) |
+| `healingItem.fallVy` | `120` | px/sec, 하강 (참고 코드 프레임당 2px * 60fps 환산) |
+| `healingItem.healAmount` | `1` | HP |
+| `healingItem.fullHpBonusScore` | `500` | 점, 만피 상태에서 획득 시 HP 대신 지급 |
 | `spawn.initialIntervalSec` | `1.2` | sec |
 | `spawn.intervalDecayPerLevel` | `0.1` | sec |
 | `spawn.minIntervalSec` | `0.35` | sec (하한) |
@@ -432,3 +508,16 @@ if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없
 - **변경 파일:** `src/contracts/systems.ts`(`UpdateEnemyAi`의 DASH 분기 의사코드/JSDoc을 레벨별 rng 소비 0/1회, 후보 인덱스 `[3, 4, 5]`로 갱신), `src/contracts/entities.ts`(`dashVx`/`dashVy` JSDoc에 "항상 좌측 성분(ux<0)을 가짐이 보장된다" 취지 추가), `.claude/_workspace/03_contracts/invariants.md`(`INV-EAI-2` 전면 재작성 — 저레벨은 정좌 고정·rng 소비 0회, 고레벨은 좌하/좌/좌상 3방향 중 rng 1회 선택; `INV-EAI-1`의 rng 소비 서술 정정; §4 밸런스 표 `enemyAi.dashOctoDirectionLevel` 설명 갱신).
 - **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
 - **결과:** 종료 코드 `0`, 출력 없음(에러 0건). DASH 방향 후보를 좌측 성분 보장 3방향(+저레벨 정좌 고정)으로 축소한 계약 개정 반영 후 독립 컴파일 통과.
+
+### 5.5 issue #21 — 회복 젤리 드롭/획득 계약 신설 (2026-08-28)
+
+- **배경:** 적 처치 시 10% 확률로 회복 젤리를 드롭시키고, 플레이어가 먹으면 HP 회복(만피면 보너스 점수)을 주는 신규 메커니즘. 오케스트레이터가 기존 엔티티/월드/충돌/전투/렌더/틱 파이프라인 구조를 분석해 확정한 설계를 그대로 계약화했다.
+- **변경 파일:**
+  - `src/contracts/entities.ts` — `HealingItem` 판별 유니온 멤버 신설(`kind: 'healingItem'`, `vx`/`vy`), `Entity` 유니온에 추가.
+  - `src/contracts/world.ts` — `GameWorld.healingItems: HealingItem[]` 필드 추가(기존 `enemies`/`regularProjectiles` 등과 동일한 위치·스타일).
+  - `src/contracts/systems.ts` — `PlayerItemPickup` 타입 신설(`PlayerContact`와 동일 패턴), `CollisionResult.playerItemPickups` 추가, `DetectCollisions` JSDoc에 플레이어-젤리 스캔 서술 추가(시그니처 불변), `ApplyMovement` JSDoc에 6번째 책임(젤리 이동: 고정 `vx`/`vy`, 클램프 없음, 좌/하단 이탈 시 소멸)과 `@mutates` 확장, **`ApplyCombat` 시그니처를 `(world, collisions, dt) => void`에서 `(world, collisions, dt, rng: Rng) => void`로 변경**(젤리 드롭 확률 판정에 결정적 rng 필요 — `fireWeapon`/`updateEnemyAi`와 동일한 근거)하고 JSDoc에 드롭(소단계 2/3 확장)·획득(신규 소단계 6) 로직을 명문화, `StepWorld`/`CreateWorld` JSDoc 갱신(7단계가 이제 rng를 받음, 초기 월드에 빈 `healingItems` 포함).
+  - `src/contracts/balance.ts` — `HealingItemBalance` 신설(`dropChance`/`width`/`height`/`driftVx`/`fallVy`/`healAmount`/`fullHpBonusScore`), `BalanceConfig.healingItem` 추가.
+  - `.claude/_workspace/03_contracts/invariants.md` — §1 실행 순서에 `applyCombat(world, collisions, dt, rng)` 반영 및 dead-entity sweep에 `healingItems` 필터 추가, rng 공유 스트림 서술에 7 추가, 신규 `INV-ITEM-1`(드롭 확률/생성, 처치 경로별 rng 소비)·`INV-ITEM-2`(이동: 클램프 없음, 좌/하단 이탈 소멸)·`INV-ITEM-3`(획득: HP 회복 또는 만피 보너스 점수, rng 미소비) 추가, §4 밸런스 표에 `healingItem.*` 7개 행 추가, "부가 확인 사항"에 렌더 참고 1줄 추가.
+- **API 변경 주의(공개 인터페이스):** `ApplyCombat`은 이번 개정으로 인자가 3개에서 4개로 늘었다. 이 함수를 직접 호출하는 모든 지점(`stepWorld.ts`, 관련 테스트)은 네 번째 `rng` 인자를 전달하도록 갱신해야 한다.
+- **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `HealingItem` 판별 유니온 추가, `GameWorld`/`CollisionResult`/`BalanceConfig` 확장, `ApplyCombat` 시그니처 변경(3-arg → 4-arg) 반영 후 독립 컴파일 통과.

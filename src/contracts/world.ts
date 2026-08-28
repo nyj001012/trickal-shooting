@@ -3,7 +3,14 @@
  * Declarations only — see the header rules in `entities.ts`.
  */
 
-import type { Enemy, EnemyProjectile, Player, RegularProjectile, SkillProjectile } from './entities';
+import type {
+  Enemy,
+  EnemyProjectile,
+  HealingItem,
+  Player,
+  RegularProjectile,
+  SkillProjectile,
+} from './entities';
 
 /** Fixed logical playfield size (design.md §1.1 — 800x600, never resized). */
 export interface Bounds {
@@ -88,6 +95,12 @@ export interface GameWorld {
    * side and uses a distinct, non-homing, 4-edge-exit movement/collision path.
    */
   enemyProjectiles: EnemyProjectile[];
+  /**
+   * Healing items ("회복 젤리") dropped by dying enemies (issue #21). Kept separate from
+   * every projectile array because it belongs to neither combatant side and uses its own
+   * fixed-velocity, no-clamp movement/collision path (INV-ITEM-1/2/3).
+   */
+  healingItems: HealingItem[];
   session: GameSession;
   spawner: SpawnerState;
   /** Next value to assign as an entity's `id`, then incremented. Starts at 0. */

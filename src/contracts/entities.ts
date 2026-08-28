@@ -236,10 +236,32 @@ export interface EnemyProjectile extends EntityBase {
 }
 
 /**
+ * A healing item ("회복 젤리", issue #21) that a dying enemy may drop with probability
+ * `BalanceConfig.healingItem.dropChance` (rolled once per projectile kill by `combat.ts`,
+ * never for contact-kills — INV-ITEM-1). It drifts left and falls with fixed velocity, is
+ * never boundary-clamped on any edge, and despawns on exiting the left or bottom edge
+ * (INV-ITEM-2). On player pickup it heals HP, or grants bonus score at full HP
+ * (INV-ITEM-3).
+ */
+export interface HealingItem extends EntityBase {
+  readonly kind: 'healingItem';
+  /** px/sec; 항상 음수(좌측 드리프트), 스폰 시 고정, 이후 불변. */
+  vx: number;
+  /** px/sec; 항상 양수(하강), 스폰 시 고정, 이후 불변. */
+  vy: number;
+}
+
+/**
  * Discriminated union over `kind`. Use this (not Box) whenever code must branch on entity
  * kind — the `switch` must be exhaustive (§6.3 / §6.5.4, `switch-exhaustiveness-check`).
  */
-export type Entity = Player | Enemy | RegularProjectile | SkillProjectile | EnemyProjectile;
+export type Entity =
+  | Player
+  | Enemy
+  | RegularProjectile
+  | SkillProjectile
+  | EnemyProjectile
+  | HealingItem;
 
 /** Derived, never hand-duplicated (§6.5.4). */
 export type EntityKind = Entity['kind'];

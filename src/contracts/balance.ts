@@ -164,6 +164,27 @@ export interface EnemyProjectileBalance {
   readonly fireIntervalMinSec: number;
 }
 
+/**
+ * Tuning for the healing-item drop/pickup mechanic introduced in issue #21. See
+ * invariants.md INV-ITEM-1..3 for the formulas that consume these values.
+ */
+export interface HealingItemBalance {
+  /** 0-1 fraction; probability that a projectile-kill enemy death drops one item (INV-ITEM-1). */
+  readonly dropChance: number;
+  /** px; AABB width. */
+  readonly width: number;
+  /** px; AABB height. */
+  readonly height: number;
+  /** px/sec; always negative — constant leftward drift speed, fixed at spawn (INV-ITEM-2). */
+  readonly driftVx: number;
+  /** px/sec; always positive — constant downward fall speed, fixed at spawn (INV-ITEM-2). */
+  readonly fallVy: number;
+  /** count; HP restored to the player on pickup, capped at `player.maxHp` (INV-ITEM-3). */
+  readonly healAmount: number;
+  /** count; score granted instead of HP when picked up while already at `player.maxHp` (INV-ITEM-3). */
+  readonly fullHpBonusScore: number;
+}
+
 export interface SpawnBalance {
   /** sec; interval between spawns at level 1. */
   readonly initialIntervalSec: number;
@@ -221,6 +242,7 @@ export interface BalanceConfig {
   readonly enemy: EnemyBalance;
   readonly enemyAi: EnemyAiBalance;
   readonly enemyProjectile: EnemyProjectileBalance;
+  readonly healingItem: HealingItemBalance;
   readonly spawn: SpawnBalance;
   readonly progression: ProgressionBalance;
   readonly limits: LimitsBalance;
