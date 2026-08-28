@@ -720,99 +720,81 @@ describe('applyMovement — enemy projectiles fixed-velocity travel (issue #17, 
   });
 });
 
-describe('applyMovement — healing items: fixed left+down drift, no clamp on any edge (INV-ITEM-2, issue #21)', () => {
-  it('moves an alive item by its fixed vx/vy every tick and never re-derives them', () => {
-    const item = makeHealingItem({ x: 400, y: 300, vx: -90, vy: 120 });
+describe('applyMovement — healing items: position fixed, lifetime countdown only (INV-ITEM-2, issue #21, 2026-08-28 drift-removal revision)', () => {
+  it('decrements lifetimeRemainSec by exactly dt each tick and leaves x/y untouched', () => {
+    const item = makeHealingItem({ x: 400, y: 300, lifetimeRemainSec: 2 });
     const world = makeWorld({ healingItems: [item] });
     applyMovement(world, makeInputState(), DT);
     const moved = world.healingItems[0];
-    expect(moved.x).toBeCloseTo(400 + -90 * DT, 8);
-    expect(moved.y).toBeCloseTo(300 + 120 * DT, 8);
-    expect(moved.vx).toBe(-90);
-    expect(moved.vy).toBe(120);
+    expect(moved.lifetimeRemainSec).toBeCloseTo(2 - DT, 8);
+    expect(moved.x).toBe(400);
+    expect(moved.y).toBe(300);
     expect(moved.alive).toBe(true);
   });
 
-  it('does not move a dead healing item', () => {
-    const item = makeHealingItem({ x: 400, y: 300, vx: -90, vy: 120, alive: false });
+  it('keeps x/y exactly fixed at their spawn values across many ticks (no drift, no clamp, no re-derivation)', () => {
+    const item = makeHealingItem({ x: 123.5, y: 77.25, lifetimeRemainSec: 4 });
+    const world = makeWorld({ healingItems: [item] });
+    for (let i = 0; i < 30; i += 1) {
+      applyMovement(world, makeInputState(), DT);
+    }
+    expect(world.healingItems[0].x).toBe(123.5);
+    expect(world.healingItems[0].y).toBe(77.25);
+  });
+
+  it('does not move or decrement a dead healing item', () => {
+    const item = makeHealingItem({ x: 400, y: 300, lifetimeRemainSec: 2, alive: false });
     const world = makeWorld({ healingItems: [item] });
     applyMovement(world, makeInputState(), DT);
     expect(world.healingItems[0].x).toBe(400);
     expect(world.healingItems[0].y).toBe(300);
-  });
-
-  it('applies no clamp on any edge — x/y may travel arbitrarily far outside bounds before despawn', () => {
-    const bounds = { width: 800, height: 600 };
-    // A huge vy well beyond the bottom edge in one tick, and no bottom clamp: the item
-    // should NOT be snapped back to `bounds.height`, it should just fall straight
-    // through to wherever the fixed velocity carries it (checked before despawn below).
-    const fastFalling = makeHealingItem({
-      x: 400,
-      y: 590,
-      vx: 0,
-      vy: 100000,
-      width: 20,
-      height: 20,
-    });
-    const world = makeWorld({ bounds, healingItems: [fastFalling] });
-    applyMovement(world, makeInputState(), DT);
-    // Once it exits the bottom edge (y > bounds.height) it despawns rather than being
-    // clamped in place — but the key point is the position was never clamped to the
-    // boundary first; it is removed instead of held at bounds.height.
+    expect(world.healingItems[0].lifetimeRemainSec).toBe(2);
     expect(world.healingItems[0].alive).toBe(false);
-    expect(world.healingItems[0].y).not.toBe(bounds.height);
   });
 
-  it('despawns the tick it fully exits the left edge (x + width < 0)', () => {
-    const item = makeHealingItem({ x: -21, y: 300, width: 20, vx: -1, vy: 0 });
+  it('despawns (alive=false) the exact tick lifetimeRemainSec reaches 0', () => {
+    const item = makeHealingItem({ lifetimeRemainSec: DT });
     const world = makeWorld({ healingItems: [item] });
     applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].lifetimeRemainSec).toBe(0);
     expect(world.healingItems[0].alive).toBe(false);
   });
 
-  it('stays alive while its right edge is still exactly on the left boundary (strict `<` rule)', () => {
-    const item = makeHealingItem({ x: -20, y: 300, width: 20, vx: 0, vy: 0 });
+  it('floors lifetimeRemainSec at 0 (never negative) when dt overshoots the remaining lifetime', () => {
+    const item = makeHealingItem({ lifetimeRemainSec: DT / 2 });
     const world = makeWorld({ healingItems: [item] });
     applyMovement(world, makeInputState(), DT);
-    // x + width === 0 exactly (not < 0): must remain alive this tick.
-    expect(world.healingItems[0].alive).toBe(true);
-  });
-
-  it('despawns the tick it fully exits the bottom edge (y > bounds.height)', () => {
-    const bounds = { width: 800, height: 600 };
-    const item = makeHealingItem({ x: 400, y: 601, vx: 0, vy: 0 });
-    const world = makeWorld({ bounds, healingItems: [item] });
-    applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].lifetimeRemainSec).toBe(0);
     expect(world.healingItems[0].alive).toBe(false);
   });
 
-  it('despawns once vy carries it strictly past the bottom edge (y > bounds.height)', () => {
-    const bounds = { width: 800, height: 600 };
-    const item = makeHealingItem({ x: 400, y: 599, vx: 0, vy: 100, width: 20, height: 20 });
-    const world = makeWorld({ bounds, healingItems: [item] });
+  it('stays alive the tick immediately before lifetimeRemainSec would reach 0', () => {
+    const item = makeHealingItem({ lifetimeRemainSec: DT * 1.5 });
+    const world = makeWorld({ healingItems: [item] });
     applyMovement(world, makeInputState(), DT);
-    expect(world.healingItems[0].y).toBeGreaterThan(bounds.height);
+    expect(world.healingItems[0].lifetimeRemainSec).toBeCloseTo(DT * 0.5, 8);
+    expect(world.healingItems[0].alive).toBe(true);
+  });
+
+  it('despawns from a realistic multi-tick countdown once roughly lifetimeSec worth of ticks have elapsed', () => {
+    // Repeatedly subtracting DT (= 1/60, a non-terminating binary fraction) accumulates
+    // floating-point summation error, so the nominal tick count (totalLifetimeSec / DT)
+    // can land a hair on either side of the true zero-crossing. The exact-zero boundary
+    // itself is already pinned precisely, without any accumulated error, by the
+    // single-tick tests above (lifetimeRemainSec set directly to DT, DT/2, and DT*1.5).
+    // This test only needs to confirm the countdown behaves sanely over many ticks:
+    // still alive well before the nominal count, and dead shortly after it.
+    const totalLifetimeSec = 4;
+    const item = makeHealingItem({ lifetimeRemainSec: totalLifetimeSec });
+    const world = makeWorld({ healingItems: [item] });
+    const nominalTicks = Math.round(totalLifetimeSec / DT);
+    for (let i = 0; i < nominalTicks - 5; i += 1) {
+      applyMovement(world, makeInputState(), DT);
+    }
+    expect(world.healingItems[0].alive).toBe(true);
+    for (let i = 0; i < 10; i += 1) {
+      applyMovement(world, makeInputState(), DT);
+    }
     expect(world.healingItems[0].alive).toBe(false);
-  });
-
-  it('stays alive while y is exactly bounds.height (top/right edges are never checked for this kind)', () => {
-    const bounds = { width: 800, height: 600 };
-    const item = makeHealingItem({ x: 400, y: 600, vx: 0, vy: 0, width: 20, height: 20 });
-    const world = makeWorld({ bounds, healingItems: [item] });
-    applyMovement(world, makeInputState(), DT);
-    expect(world.healingItems[0].y).toBe(600);
-    expect(world.healingItems[0].alive).toBe(true);
-  });
-
-  it('never clamps x back into bounds even far past the right edge (no clamp on any edge, unlike every other entity kind)', () => {
-    const bounds = { width: 800, height: 600 };
-    const item = makeHealingItem({ x: 5000, y: 300, vx: 100000, vy: 0, width: 20, height: 20 });
-    const world = makeWorld({ bounds, healingItems: [item] });
-    applyMovement(world, makeInputState(), DT);
-    // vx is positive here purely to prove the point defensively: even driven far to
-    // the right, nothing clamps it back to bounds.width - width (contrast with every
-    // other entity kind, which clamps or despawns on the right edge).
-    expect(world.healingItems[0].x).toBeGreaterThan(bounds.width);
-    expect(world.healingItems[0].alive).toBe(true);
   });
 });

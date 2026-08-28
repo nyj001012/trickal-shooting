@@ -5,6 +5,7 @@
  */
 import type { GameWorld } from '@/contracts';
 
+import { BALANCE } from '../game/balance';
 import { drawEntity } from './drawEntity';
 import { PALETTE } from './palette';
 
@@ -33,6 +34,11 @@ export function drawScene(ctx: CanvasRenderingContext2D, world: Readonly<GameWor
     drawEntity(ctx, projectile);
   }
   for (const item of world.healingItems) {
-    drawEntity(ctx, item);
+    const shouldBlink = item.lifetimeRemainSec <= BALANCE.healingItem.blinkRemainSec;
+    const visible =
+      !shouldBlink || Math.floor(item.lifetimeRemainSec / HIT_FLASH_INTERVAL_SEC) % 2 === 0;
+    if (visible) {
+      drawEntity(ctx, item);
+    }
   }
 }

@@ -147,10 +147,13 @@ export function makeSkillProjectile(overrides: Partial<SkillProjectile> = {}): S
 }
 
 /**
- * A healing item ("회복 젤리", issue #21). Defaults to a fixed-velocity drift/fall
- * (left + down, INV-ITEM-2) at a plausible mid-field position; tests that care about
- * a specific despawn edge or a specific enemy-center placement override x/y/vx/vy
- * explicitly rather than relying on these values.
+ * A healing item ("회복 젤리", issue #21, 2026-08-28 drift-removal revision). Fixed in
+ * place at spawn — this kind no longer has `vx`/`vy` (INV-ITEM-2). It despawns purely
+ * via `lifetimeRemainSec` counting down to 0 by `dt` each tick. Defaults to a plausible
+ * mid-field position and a lifetime matching the recommended
+ * `BalanceConfig.healingItem.lifetimeSec` value (4.0s, see invariants.md INV-ITEM-2);
+ * tests that care about a specific despawn timing or a specific enemy-center placement
+ * override x/y/lifetimeRemainSec explicitly rather than relying on these values.
  */
 export function makeHealingItem(overrides: Partial<HealingItem> = {}): HealingItem {
   return {
@@ -161,8 +164,7 @@ export function makeHealingItem(overrides: Partial<HealingItem> = {}): HealingIt
     width: 20,
     height: 20,
     alive: true,
-    vx: -90,
-    vy: 120,
+    lifetimeRemainSec: 4,
     ...overrides,
   };
 }

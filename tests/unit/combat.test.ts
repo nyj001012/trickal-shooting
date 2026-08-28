@@ -358,8 +358,9 @@ describe('applyCombat — healing item drop chance on projectile kills (INV-ITEM
     expect(item.alive).toBe(true);
     expect(item.x + item.width / 2).toBeCloseTo(enemy.x + enemy.width / 2, 8);
     expect(item.y + item.height / 2).toBeCloseTo(enemy.y + enemy.height / 2, 8);
-    expect(item.vx).toBe(BALANCE.healingItem.driftVx);
-    expect(item.vy).toBe(BALANCE.healingItem.fallVy);
+    // 2026-08-28 revision (INV-ITEM-2): drift removed — the item spawns with a fresh
+    // full-duration lifetime timer instead of a vx/vy pair.
+    expect(item.lifetimeRemainSec).toBe(BALANCE.healingItem.lifetimeSec);
   });
 
   it('does not drop a healing item when the roll lands exactly on dropChance (strict `<` boundary, regular kill)', () => {

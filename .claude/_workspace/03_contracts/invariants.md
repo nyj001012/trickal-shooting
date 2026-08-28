@@ -344,7 +344,7 @@ if (item.lifetimeRemainSec <= 0) {
 
 - **이동 로직이 전혀 없다.** `x`/`y`는 `combat.ts`가 스폰 시 결정한 값에서 다시는 변하지 않는다 — 클램프도, 드리프트도, 재조향도 없다. 다른 모든 엔티티(플레이어 INV-MOVE-2, 적 INV-EAI-5, 각 투사체)와 달리 이 엔티티는 애초에 이동 시스템의 적용 대상이 아니다.
 - **소멸 조건은 오직 수명 타이머뿐이다.** `lifetimeRemainSec`은 `BalanceConfig.healingItem.lifetimeSec`(권장 `4.0`)에서 시작해 매 틱 `dt`만큼 감소하고, `0` 이하가 되면(`Math.max(0, ...)`로 음수 방지) `alive = false`가 된다. 화면 경계(좌/우/상/하) 이탈 관련 소멸 조건은 존재하지 않는다 — 애초에 이동하지 않으므로 경계를 벗어날 수 없다.
-- **획득이 수명 만료보다 우선한다.** 같은 틱에 `lifetimeRemainSec`이 0에 도달하는 것과 플레이어 픽업이 동시에 일어날 수 있는데, `stepWorld`의 고정 실행 순서(§1 — `applyMovement`가 `detectCollisions`/`applyCombat`보다 먼저 실행)상 이 시스템이 먼저 `alive = false`로 만료시키면, 같은 틱의 `detectCollisions`는 그 아이템을 이미 죽은 것으로 보고 `playerItemPickups`에 포함하지 않는다 — 즉 만료 시점이 정확히 겹치는 프레임에서는 만료가 우선한다(만료 이전 프레임까지는 항상 INV-ITEM-3의 획득이 정상 적용된다).
+- **수명 만료가 획득보다 우선한다.** 같은 틱에 `lifetimeRemainSec`이 0 이하로 떨어지는 것과 플레이어 픽업이 동시에 일어날 수 있는데, `stepWorld`의 고정 실행 순서(§1 — `applyMovement`가 `detectCollisions`/`applyCombat`보다 먼저 실행)상 이 시스템이 먼저 `alive = false`로 만료시키므로, 같은 틱의 `detectCollisions`는 이미 죽은 아이템을 `playerItemPickups`에 포함하지 않는다(INV-ITEM-3/`collision.ts`의 기존 관례 — 죽은 엔티티는 어떤 픽업/충돌 목록에도 오르지 않음) — 즉 정확히 만료되는 그 틱에는 설령 플레이어와 겹쳐 있어도 획득이 발생하지 않는다. 반대로 수명이 아직 양수로 남아 있는 그 이전 틱까지는 겹치는 즉시 INV-ITEM-3의 획득이 정상적으로 적용된다.
 - **렌더 힌트(구현 담당자 안내용, 상세 렌더 구현은 계약 범위 밖):** `lifetimeRemainSec <= BalanceConfig.healingItem.blinkRemainSec`(권장 `1.0`)인 동안은 플레이어 무적 시간과 동일한 100ms 간격 점멸 연출을 적용한다(`render/drawScene.ts`의 `HIT_FLASH_INTERVAL_SEC` 재사용 또는 동일 값).
 - 세션 부수효과 없음: 수명 만료로 소멸하는 젤리는 획득이 아니므로 HP/MANA/SCORE를 전혀 변경하지 않는다(INV-ITEM-3의 획득 경로와 무관).
 - 테스트 관점: (a) 여러 틱을 진행해도 `x`/`y`가 스폰 시점 값과 정확히 동일하게 유지되는지, (b) `lifetimeRemainSec`이 매 틱 정확히 `dt`만큼 감소하고 `0` 미만으로 내려가지 않는지, (c) `lifetimeSec`초 경과 시점에 정확히 `alive === false`가 되는지, (d) 수명 만료 이전에 픽업이 발생하면 `alive === false`가 되면서도 HP/SCORE 보상이 함께 적용되는지 확인한다.
@@ -534,3 +534,13 @@ for (const { item } of collisions.playerItemPickups) {
 - **API 변경 없음:** `ApplyMovement`/`ApplyCombat`의 함수 시그니처(인자 개수·타입)는 변경되지 않는다. 이번 개정은 엔티티 필드 구성과 JSDoc 서술만 바뀐다.
 - **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
 - **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `HealingItem.vx`/`vy` 제거 및 `lifetimeRemainSec` 추가, `HealingItemBalance.driftVx`/`fallVy` 제거 및 `lifetimeSec`/`blinkRemainSec` 추가 반영 후 독립 컴파일 통과.
+
+### 5.7 INV-ITEM-2 획득/만료 우선순위 헤드라인 오류 정정 — 고정 실행 순서상 만료가 실제로 우선함 (2026-08-28)
+
+- **배경:** §5.6에서 도입한 INV-ITEM-2 서술 중 "획득이 수명 만료보다 우선한다"는 헤드라인이 실제 엔진 동작과 정반대였다. `stepWorld`의 고정 실행 순서(§1 — `applyMovement`가 `detectCollisions`/`applyCombat`보다 먼저 실행, 매 틱 1회)상 `applyMovement`가 `lifetimeRemainSec`을 감소시켜 `0` 이하가 되는 즉시 그 틱에 `alive = false`로 만료 처리하므로, 뒤이어 실행되는 `detectCollisions`는 이미 죽은 아이템을 `playerItemPickups`에 포함하지 않는다(INV-ITEM-3/`collision.ts`의 기존 관례와 동일). 즉 정확히 같은 틱에 수명이 0이 되는 아이템은 플레이어와 겹쳐 있어도 획득되지 않는다 — **만료가 획득보다 우선한다.** 로직·필드·코드는 애초에 정확했고, 계약 문서의 서술 오류만 정정한다.
+- **변경 파일:**
+  - `.claude/_workspace/03_contracts/invariants.md` — `INV-ITEM-2`의 헤드라인 문장을 "획득이 수명 만료보다 우선한다" → "수명 만료가 획득보다 우선한다"로 정정하고, 근거(고정 실행 순서·죽은 엔티티는 픽업 목록에 오르지 않는 기존 관례)와 예외(만료 이전 틱까지는 겹치는 즉시 정상 획득됨)를 함께 명시.
+  - `src/contracts/entities.ts` — `HealingItem.lifetimeRemainSec` JSDoc 중 획득/만료 우선순위를 반대로 서술한 문구를 동일 취지로 정정.
+- **API 변경 없음:** 타입·필드·함수 시그니처는 전혀 변경되지 않는다. 이번 개정은 계약 문서의 서술(JSDoc·산문 명세) 오류 정정뿐이다.
+- **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). JSDoc/산문 텍스트만 변경되어 타입 구조에 영향 없음을 확인.

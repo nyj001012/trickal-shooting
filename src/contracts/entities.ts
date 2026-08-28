@@ -241,17 +241,24 @@ export interface EnemyProjectile extends EntityBase {
  * never for contact-kills — INV-ITEM-1). It is permanently fixed at its spawn position —
  * no movement logic is ever applied to it (2026-08-28 revision: the original left/down
  * drift was removed per user feedback). It despawns purely on a lifetime timer
- * (INV-ITEM-2). On player pickup, before the timer expires, it heals HP or grants bonus
- * score at full HP, and is removed immediately (INV-ITEM-3, which takes priority over
- * timer expiry).
+ * (INV-ITEM-2). On player pickup, while the timer still has time remaining, it heals HP
+ * or grants bonus score at full HP, and is removed immediately (INV-ITEM-3). Because
+ * `applyMovement` (which decrements the timer) always runs before `detectCollisions` /
+ * `applyCombat` in the fixed step order (§1), timer expiry takes priority over pickup in
+ * the exact tick the timer reaches 0 — an item that expires that tick is already dead by
+ * the time collisions are detected, so no pickup occurs even if it overlaps the player.
  */
 export interface HealingItem extends EntityBase {
   readonly kind: 'healingItem';
   /**
    * sec; counts down from `BalanceConfig.healingItem.lifetimeSec` by `dt` every tick.
-   * Despawns (`alive = false`) once this reaches 0. Independent of, and evaluated before,
-   * any pickup — but a pickup in the same tick removes the item regardless of the
-   * remaining value (INV-ITEM-3 takes priority). `x`/`y` never change after spawn.
+   * Despawns (`alive = false`) once this reaches 0, and this despawn is evaluated in
+   * `applyMovement`, which always runs before `detectCollisions` / `applyCombat` (§1).
+   * Consequently, expiry takes priority over pickup: in the exact tick this value hits 0
+   * the item is already dead before collisions are detected, so no pickup happens even if
+   * it overlaps the player that tick (INV-ITEM-2). In every earlier tick, while this value
+   * is still positive, an overlapping pickup applies normally (INV-ITEM-3). `x`/`y` never
+   * change after spawn.
    */
   lifetimeRemainSec: number;
 }

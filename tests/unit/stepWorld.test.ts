@@ -245,4 +245,58 @@ describe('stepWorld — healing items (issue #21: applyCombat now receives rng, 
     const runB = run();
     expect(runA).toEqual(runB);
   });
+
+  // 2026-08-28 drift-removal revision — INV-ITEM-2 vs INV-ITEM-3 ordering.
+  //
+  // invariants.md's INV-ITEM-2 headline claims "획득이 수명 만료보다 우선한다" (pickup
+  // takes priority over lifetime expiry), and `src/contracts/entities.ts`'s
+  // `HealingItem.lifetimeRemainSec` JSDoc repeats the same claim ("a pickup in the same
+  // tick removes the item regardless of the remaining value"). But INV-ITEM-2's own
+  // worked-example paragraph, and the fixed System Execution Order in invariants.md §1
+  // (`applyMovement` — step 3 — always runs before `detectCollisions` — step 6 — and
+  // `applyCombat` — step 7), plus `detectCollisions`'s already-contracted behavior of
+  // excluding dead items from `playerItemPickups` (see collision.test.ts "ignores a dead
+  // healing item even when its AABB overlaps the player"), together describe the
+  // opposite outcome for the exact tick where both conditions coincide: `applyMovement`
+  // decrements `lifetimeRemainSec` to 0 and sets `alive = false` *before*
+  // `detectCollisions` ever runs, so that tick's `detectCollisions` call sees an already-
+  // dead item and never includes it in `playerItemPickups` — `applyCombat` then never
+  // sees it, and INV-ITEM-3's heal/bonus-score effect cannot fire.
+  //
+  // These two tests pin down the actually-reachable, mechanically-consistent behavior
+  // (expiry wins on the exact coinciding tick; pickup wins on every tick strictly before
+  // expiry) rather than the self-contradictory headline. This contradiction was flagged
+  // to the orchestrator/tech-leader for a contract clarification; frontend-qa cannot
+  // resolve it unilaterally, so these tests encode the one behavior that is actually
+  // producible by the documented, fixed `stepWorld` execution order.
+  describe('healing item pickup vs. lifetime-expiry ordering (INV-ITEM-2 §1 execution order vs. INV-ITEM-3)', () => {
+    function overlappingWorld(itemLifetimeRemainSec: number) {
+      return makeWorld({
+        player: makePlayer({ x: 200, y: 200, width: 32, height: 32 }),
+        healingItems: [
+          makeHealingItem({ id: 90, x: 200, y: 200, width: 20, height: 20, lifetimeRemainSec: itemLifetimeRemainSec }),
+        ],
+        spawner: { intervalRemainSec: 999, currentIntervalSec: 999 },
+        session: { hp: 1, maxHp: 10, mana: 0, score: 0, level: 1, status: 'playing' },
+      });
+    }
+    const neverCalledRng = (): number => {
+      throw new Error('rng must not be called: no skill fire, no enemy spawn/AI/kill, no INV-ITEM-1 roll is expected this tick');
+    };
+
+    it('despawns without healing when lifetimeRemainSec reaches exactly 0 the same tick the player overlaps it', () => {
+      const world = overlappingWorld(DT);
+      stepWorld(world, makeInputState(), DT, neverCalledRng);
+      expect(world.healingItems).toHaveLength(0);
+      expect(world.session.hp).toBe(1);
+      expect(world.session.score).toBe(0);
+    });
+
+    it('applies the normal INV-ITEM-3 pickup effect on the tick immediately before expiry would occur', () => {
+      const world = overlappingWorld(DT * 1.5);
+      stepWorld(world, makeInputState(), DT, neverCalledRng);
+      expect(world.healingItems).toHaveLength(0);
+      expect(world.session.hp).toBe(1 + BALANCE.healingItem.healAmount);
+    });
+  });
 });

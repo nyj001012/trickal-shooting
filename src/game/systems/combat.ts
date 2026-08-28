@@ -18,8 +18,7 @@ function maybeDropHealingItem(world: GameWorld, enemy: Readonly<Box>, rng: Rng):
       y: centerY - BALANCE.healingItem.height / 2,
       width: BALANCE.healingItem.width,
       height: BALANCE.healingItem.height,
-      vx: BALANCE.healingItem.driftVx,
-      vy: BALANCE.healingItem.fallVy,
+      lifetimeRemainSec: BALANCE.healingItem.lifetimeSec,
     };
     world.healingItems.push(item);
   }

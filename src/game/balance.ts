@@ -113,10 +113,10 @@ export const BALANCE = {
     width: 20,
     /** px */
     height: 20,
-    /** px/sec */
-    driftVx: -90,
-    /** px/sec */
-    fallVy: 120,
+    /** sec */
+    lifetimeSec: 4.0,
+    /** sec */
+    blinkRemainSec: 1.0,
     /** count */
     healAmount: 1,
     /** count */
