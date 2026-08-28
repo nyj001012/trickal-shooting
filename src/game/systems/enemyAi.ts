@@ -26,8 +26,12 @@ const DIRECTION_TABLE: ReadonlyArray<{ readonly ux: number; readonly uy: number 
   { ux: Math.SQRT1_2, uy: -Math.SQRT1_2 },
 ];
 
-/** 4-direction candidates map through this fixed table (cardinal-only subset, INV-EAI-2). */
-const FOUR_DIRECTION_TABLE_INDEXES: readonly number[] = [0, 2, 4, 6];
+/**
+ * Octo-direction DASH candidates: only table entries with a leftward component (ux < 0),
+ * i.e. 3 (down-left), 4 (left), 5 (up-left), per INV-EAI-2. Order is significant — rng maps
+ * onto this array by index.
+ */
+const DASH_OCTO_DIRECTION_TABLE_INDEXES: readonly number[] = [3, 4, 5];
 
 /** Fixed action-bucket table (INV-EAI-1 step a). */
 const ACTIONS = ['dash', 'oscillate', 'circle'] as const;
@@ -44,10 +48,11 @@ export const updateEnemyAi: UpdateEnemyAi = (world, _dt, rng): void => {
 
     switch (enemy.action) {
       case 'dash': {
-        const direction =
+        const tableIndex =
           world.session.level < BALANCE.enemyAi.dashOctoDirectionLevel
-            ? DIRECTION_TABLE[FOUR_DIRECTION_TABLE_INDEXES[Math.min(3, Math.floor(rng() * 4))]]
-            : DIRECTION_TABLE[Math.min(7, Math.floor(rng() * 8))];
+            ? 4
+            : DASH_OCTO_DIRECTION_TABLE_INDEXES[Math.min(2, Math.floor(rng() * 3))];
+        const direction = DIRECTION_TABLE[tableIndex];
         enemy.dashVx = direction.ux * BALANCE.enemy.speed;
         enemy.dashVy = direction.uy * BALANCE.enemy.speed;
         break;

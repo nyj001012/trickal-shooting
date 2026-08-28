@@ -24,8 +24,16 @@ const DIRECTION_TABLE: ReadonlyArray<{ ux: number; uy: number }> = [
   { ux: Math.SQRT1_2, uy: -Math.SQRT1_2 },
 ];
 
-/** 4-direction candidate indices map through this fixed table (cardinal-only subset). */
-const FOUR_DIRECTION_TABLE_INDEXES = [0, 2, 4, 6] as const;
+/**
+ * DASH direction candidates per the revised INV-EAI-2 (2026-08-28): only the three
+ * table entries with a leftward component (`ux < 0`) — southwest, west, northwest —
+ * are eligible. `index3 = Math.min(2, Math.floor(rng() * 3))` maps through this array,
+ * in this exact order, into the shared 8-direction table above.
+ */
+const DASH_CANDIDATE_TABLE_INDEXES = [3, 4, 5] as const;
+
+/** Deterministic low-level DASH direction: always due west (180deg), table index 4. */
+const LOW_LEVEL_DASH_TABLE_INDEX = 4;
 
 /**
  * A deterministic `Rng` that returns queued values in order and throws if called more
@@ -91,12 +99,15 @@ describe('updateEnemyAi — one-time selection timing and permanence (INV-EAI-1,
     const enemy = makeEnemy({ actionInitialized: false, x: 500, y: 245 });
     const world = makeWorld({ enemies: [enemy] });
 
-    // Only the values needed for the ONE allowed selection (dash: bucket + direction).
-    updateEnemyAi(world, DT, sequenceRng([0.1, 0.2]));
+    // Default fixture level (1) is below dashOctoDirectionLevel (INV-EAI-2 low-level
+    // path): direction is deterministic (due west) and consumes NO extra rng, so the
+    // ONE allowed selection for this enemy needs only the actionIndex bucket value.
+    updateEnemyAi(world, DT, sequenceRng([0.1]));
 
     const afterFirst = { ...world.enemies[0] };
     expect(afterFirst.actionInitialized).toBe(true);
     expect(afterFirst.action).toBe('dash');
+    expect(afterFirst.dashVx).toBeLessThan(0);
 
     // Regression guard: simulate several more seconds of ticks. Every one of these
     // calls is handed an EMPTY rng — if the implementation ever re-rolls (the exact bug
@@ -182,27 +193,77 @@ describe('updateEnemyAi — action selection buckets (actionIndex = Math.min(2, 
   });
 });
 
-describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
+describe('updateEnemyAi — DASH direction selection (INV-EAI-2, 2026-08-28 revision)', () => {
   const DASH_BUCKET = 0.1; // actionIndex 0 -> 'dash'
 
+  function belowThresholdWorld(enemy: ReturnType<typeof makeEnemy>) {
+    return makeWorld({
+      enemies: [enemy],
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: 0,
+        score: 0,
+        level: BALANCE.enemyAi.dashOctoDirectionLevel - 1,
+        status: 'playing',
+      },
+    });
+  }
+
+  function atOrAboveThresholdWorld(enemy: ReturnType<typeof makeEnemy>) {
+    return makeWorld({
+      enemies: [enemy],
+      session: {
+        hp: 3,
+        maxHp: 3,
+        mana: 0,
+        score: 0,
+        level: BALANCE.enemyAi.dashOctoDirectionLevel,
+        status: 'playing',
+      },
+    });
+  }
+
+  it('below dashOctoDirectionLevel, deterministically picks due-west (table index 4) while consuming ZERO extra rng for direction', () => {
+    const enemy = makeEnemy({ actionInitialized: false });
+    const world = belowThresholdWorld(enemy);
+
+    // Only the bucket value is supplied — any attempt by the implementation to draw a
+    // second rng() call for direction makes `sequenceRng` throw "exhausted", which is
+    // exactly the low-level no-extra-draw rule this test proves.
+    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET]));
+
+    const updated = world.enemies[0];
+    expect(updated.action).toBe('dash');
+    const unit = DIRECTION_TABLE[LOW_LEVEL_DASH_TABLE_INDEX];
+    expect(updated.dashVx).toBeCloseTo(unit.ux * BALANCE.enemy.speed, 8);
+    expect(updated.dashVy).toBeCloseTo(unit.uy * BALANCE.enemy.speed, 8);
+  });
+
+  it('below dashOctoDirectionLevel, the deterministic due-west pick is identical regardless of any surplus rng values in the stream (they are simply never consumed)', () => {
+    const first = makeEnemy({ actionInitialized: false, id: 1 });
+    const second = makeEnemy({ actionInitialized: false, id: 2 });
+
+    const worldA = belowThresholdWorld(first);
+    updateEnemyAi(worldA, DT, sequenceRng([DASH_BUCKET]));
+
+    const worldB = belowThresholdWorld(second);
+    // Supplying extra values is harmless (sequenceRng only throws on UNDER-supply);
+    // the low-level path must still never touch them.
+    updateEnemyAi(worldB, DT, sequenceRng([DASH_BUCKET, 0, 0.99]));
+
+    expect(worldA.enemies[0].dashVx).toBe(worldB.enemies[0].dashVx);
+    expect(worldA.enemies[0].dashVy).toBe(worldB.enemies[0].dashVy);
+  });
+
   it.each(
-    FOUR_DIRECTION_TABLE_INDEXES.map((tableIndex, index4) => ({ index4, tableIndex })),
+    DASH_CANDIDATE_TABLE_INDEXES.map((tableIndex, index3) => ({ index3, tableIndex })),
   )(
-    'below dashOctoDirectionLevel, maps 4-direction index $index4 through [0,2,4,6] to table index $tableIndex',
-    ({ index4, tableIndex }) => {
+    'at or above dashOctoDirectionLevel, maps index3=$index3 through [3,4,5] to table index $tableIndex (southwest/west/northwest)',
+    ({ index3, tableIndex }) => {
       const enemy = makeEnemy({ actionInitialized: false });
-      const world = makeWorld({
-        enemies: [enemy],
-        session: {
-          hp: 3,
-          maxHp: 3,
-          mana: 0,
-          score: 0,
-          level: BALANCE.enemyAi.dashOctoDirectionLevel - 1,
-          status: 'playing',
-        },
-      });
-      const dirRng = (index4 + 0.5) / 4;
+      const world = atOrAboveThresholdWorld(enemy);
+      const dirRng = (index3 + 0.5) / 3;
 
       updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, dirRng]));
 
@@ -214,73 +275,54 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
     },
   );
 
-  it('clamps the 4-direction index to 3 for the theoretical rng() === 1 edge case', () => {
+  it('clamps index3 to 2 (table index 5, northwest) for the theoretical rng() === 1 edge case', () => {
     const enemy = makeEnemy({ actionInitialized: false });
-    const world = makeWorld({
-      enemies: [enemy],
-      session: {
-        hp: 3,
-        maxHp: 3,
-        mana: 0,
-        score: 0,
-        level: BALANCE.enemyAi.dashOctoDirectionLevel - 1,
-        status: 'playing',
-      },
-    });
+    const world = atOrAboveThresholdWorld(enemy);
 
     updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, 1]));
 
     const updated = world.enemies[0];
-    const unit = DIRECTION_TABLE[FOUR_DIRECTION_TABLE_INDEXES[3]];
+    const unit = DIRECTION_TABLE[DASH_CANDIDATE_TABLE_INDEXES[2]];
     expect(updated.dashVx).toBeCloseTo(unit.ux * BALANCE.enemy.speed, 8);
     expect(updated.dashVy).toBeCloseTo(unit.uy * BALANCE.enemy.speed, 8);
   });
 
-  it.each(DIRECTION_TABLE.map((dir, index) => ({ ...dir, index })))(
-    'at or above dashOctoDirectionLevel, uses the full 8-direction table directly at index $index',
-    ({ ux, uy, index }) => {
-      const enemy = makeEnemy({ actionInitialized: false });
-      const world = makeWorld({
-        enemies: [enemy],
-        session: {
-          hp: 3,
-          maxHp: 3,
-          mana: 0,
-          score: 0,
-          level: BALANCE.enemyAi.dashOctoDirectionLevel,
-          status: 'playing',
-        },
-      });
-      const dirRng = (index + 0.5) / 8;
+  it('regression guard (below threshold): dashVx always has a leftward component (ux < 0), never up/down/right, across many seeds', () => {
+    let dashObserved = 0;
+    for (let seed = 0; seed < 50; seed += 1) {
+      const enemy = makeEnemy({ actionInitialized: false, id: seed });
+      const world = belowThresholdWorld(enemy);
+      const rng = createRng(seed);
 
-      updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, dirRng]));
+      updateEnemyAi(world, DT, rng);
 
-      const updated = world.enemies[0];
-      expect(updated.dashVx).toBeCloseTo(ux * BALANCE.enemy.speed, 8);
-      expect(updated.dashVy).toBeCloseTo(uy * BALANCE.enemy.speed, 8);
-    },
-  );
+      // Not every seed rolls 'dash' from the actionIndex bucket; only assert the
+      // leftward-component invariant when this seed actually produced a dash.
+      if (world.enemies[0].action === 'dash') {
+        dashObserved += 1;
+        expect(world.enemies[0].dashVx).toBeLessThan(0);
+      }
+    }
+    // Sanity check: the loop above must have actually exercised the DASH branch at
+    // least once, otherwise the assertion inside it would never run.
+    expect(dashObserved).toBeGreaterThan(0);
+  });
 
-  it('clamps the 8-direction index to 7 for the theoretical rng() === 1 edge case', () => {
-    const enemy = makeEnemy({ actionInitialized: false });
-    const world = makeWorld({
-      enemies: [enemy],
-      session: {
-        hp: 3,
-        maxHp: 3,
-        mana: 0,
-        score: 0,
-        level: BALANCE.enemyAi.dashOctoDirectionLevel,
-        status: 'playing',
-      },
-    });
+  it('regression guard (at/above threshold): dashVx always has a leftward component (ux < 0) across many seeds', () => {
+    let dashObserved = 0;
+    for (let seed = 0; seed < 50; seed += 1) {
+      const enemy = makeEnemy({ actionInitialized: false, id: seed });
+      const world = atOrAboveThresholdWorld(enemy);
+      const rng = createRng(seed);
 
-    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, 1]));
+      updateEnemyAi(world, DT, rng);
 
-    const updated = world.enemies[0];
-    const last = DIRECTION_TABLE[7];
-    expect(updated.dashVx).toBeCloseTo(last.ux * BALANCE.enemy.speed, 8);
-    expect(updated.dashVy).toBeCloseTo(last.uy * BALANCE.enemy.speed, 8);
+      if (world.enemies[0].action === 'dash') {
+        dashObserved += 1;
+        expect(world.enemies[0].dashVx).toBeLessThan(0);
+      }
+    }
+    expect(dashObserved).toBeGreaterThan(0);
   });
 
   it('holds dashVx/dashVy constant forever once selected — never re-derives them, even after a level change', () => {
@@ -290,7 +332,8 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
       session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
     });
 
-    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, 0]));
+    // Default/low-level path: only the bucket value is needed.
+    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET]));
     const dashVxAfterSelect = world.enemies[0].dashVx;
     const dashVyAfterSelect = world.enemies[0].dashVy;
 
@@ -403,7 +446,7 @@ describe('updateEnemyAi — CIRCLE selection (INV-EAI-4)', () => {
 });
 
 describe('updateEnemyAi — multiple enemies, array order, rng consumed only by uninitialized enemies', () => {
-  it('consumes 0 rng for an already-initialized enemy, 1 for an OSCILLATE first-selection, and 2 for a DASH first-selection, in world.enemies order', () => {
+  it('consumes 0 rng for an already-initialized enemy, 1 for an OSCILLATE first-selection, and 1 for a low-level DASH first-selection, in world.enemies order', () => {
     const alreadyInitialized = makeEnemy({ id: 1, actionInitialized: true, action: 'dash' });
     const oscillatePending = makeEnemy({ id: 2, actionInitialized: false });
     const dashPending = makeEnemy({ id: 3, actionInitialized: false });
@@ -413,8 +456,10 @@ describe('updateEnemyAi — multiple enemies, array order, rng consumed only by 
     });
 
     // oscillatePending consumes [0.4 (bucket -> oscillate)].
-    // dashPending consumes [0.1 (bucket -> dash), 0.2 (direction)].
-    updateEnemyAi(world, DT, sequenceRng([0.4, 0.1, 0.2]));
+    // dashPending consumes [0.1 (bucket -> dash)] only: level 1 is below
+    // dashOctoDirectionLevel, so the low-level deterministic-west path draws no
+    // additional direction rng (INV-EAI-2).
+    updateEnemyAi(world, DT, sequenceRng([0.4, 0.1]));
 
     expect(world.enemies[0].action).toBe('dash');
     expect(world.enemies[0].actionInitialized).toBe(true);
