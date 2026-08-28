@@ -228,31 +228,37 @@ offscreen =
 
 - **선택 여부 판정:** `Enemy.actionInitialized: boolean` 필드로 "이미 첫 행동을 배정받았는지"를 추적한다. `spawnTick`은 새 적을 `actionInitialized = false`로 초기화하고 나머지 행동 필드는 임의의 플레이스홀더로 채운다(값 자체는 중요하지 않다 — `applyMovement`가 이번 틱에는 이미 실행을 마쳤으므로 이 플레이스홀더를 읽지 않는다, §1 참고). 같은 틱에 `spawnTick` 바로 다음 실행되는 `updateEnemyAi`가 `actionInitialized === false`인 적을 발견하면 **그 즉시** 첫 실제 행동을 배정하고, 배정을 마친 시점에 `actionInitialized`를 `true`로 뒤집는다.
 - **이후 영구 유지:** `actionInitialized === true`인 적에 대해서는 `updateEnemyAi`가 어떤 필드도 재선택·재추첨하지 않는다. 한 번 정해진 `action`과 그 파생 필드(`dashVx`/`dashVy`, `oscillateBaseY`, `circleDir` 등)는 그 적이 `alive === false`가 되어 소멸할 때까지 그대로 유지된다. `actionDurationMinSec`/`actionDurationMaxSec`/`actionRemainSec`와 같은 카운트다운 개념은 폐기되었으며 계약·타입 어디에도 존재하지 않는다.
-- 최초 배정 순서(정확히 이 순서로 `rng` 소비, 그 적의 생애 동안 단 1회만 발생): ① `actionIndex = Math.min(2, Math.floor(rng() * 3))` → 표 `0:'dash', 1:'oscillate', 2:'circle'`, ② 선택된 행동에 따라 추가 필드 초기화(DASH/CIRCLE만 `rng` 1회 더 소비 — INV-EAI-2/4 참고, OSCILLATE는 추가 소비 없음).
-- 테스트 관점: 고정 시드로 `updateEnemyAi`를 같은 적에 대해 반복 호출했을 때, 최초 1회 호출에서만 `rng` 소비(0/1회 추가, 총 1/2회)와 `actionInitialized: false → true` 전이가 일어나고, 이후 모든 호출에서는 `rng`를 전혀 소비하지 않으며 `action`과 파생 필드가 이전 값과 완전히 동일해야 한다. 동일 시드·동일 스폰 시퀀스는 항상 동일한 각 적의 `action` 배정을 재현해야 한다.
+- 최초 배정 순서(정확히 이 순서로 `rng` 소비, 그 적의 생애 동안 단 1회만 발생): ① `actionIndex = Math.min(2, Math.floor(rng() * 3))` → 표 `0:'dash', 1:'oscillate', 2:'circle'`, ② 선택된 행동에 따라 추가 필드 초기화 — DASH는 레벨에 따라 방향 `rng` 소비가 **0회(저레벨, 정좌 고정)** 또는 **1회(고레벨, 좌하/좌/좌상 3방향 중 선택)** 이며(INV-EAI-2 참고), CIRCLE은 항상 `rng` 1회 소비(INV-EAI-4 참고), OSCILLATE는 추가 소비 없음.
+- 테스트 관점: 고정 시드로 `updateEnemyAi`를 같은 적에 대해 반복 호출했을 때, 최초 1회 호출에서만 `rng` 소비(행동 선택 1회 + 추가 0/1회, 총 1~2회 — DASH 저레벨은 총 1회, DASH 고레벨과 CIRCLE은 총 2회, OSCILLATE는 총 1회)와 `actionInitialized: false → true` 전이가 일어나고, 이후 모든 호출에서는 `rng`를 전혀 소비하지 않으며 `action`과 파생 필드가 이전 값과 완전히 동일해야 한다. 동일 시드·동일 스폰 시퀀스는 항상 동일한 각 적의 `action` 배정을 재현해야 한다.
 
-### INV-EAI-2 — DASH: 레벨 게이팅된 고정 방향 직선 이동 (issue #19)
+### INV-EAI-2 — DASH: 항상 좌측 성분을 갖는 방향 직선 이동, 고레벨에서만 3방향 중 rng 선택 (issue #19, 영구 고착 회귀 수정으로 전면 개정 2026-08-28)
 
-DASH가 선택되면 `updateEnemyAi`가 (그 적의 생애 중 단 1회) `rng` 1회를 더 소비해 방향을 뽑고, 그 방향 단위벡터에 `BalanceConfig.enemy.speed`를 곱해 `dashVx`/`dashVy`를 정확히 한 번 정한다. 이 값은 그 적이 살아있는 동안(영구) 절대 바뀌지 않는다(재조향 없음, 재선택 없음).
+**회귀 배경 및 근거:** 개정 전 규칙은 DASH 방향 후보에 위(90deg)/아래(270deg)/오른쪽(0deg)을 포함했다. 적은 화면 우측 바깥에서 스폰되고(`spawnTick`), x축은 우측만 클램프되며 좌측은 클램프 없이 화면을 완전히 벗어나야 소멸한다(`INV-ESCAPE-1`). 행동이 스폰 시 1회 선택 후 영구 고정되므로(`INV-EAI-1`), 좌측 성분(ux < 0)이 없는 방향으로 DASH가 선택된 적은 화면 우측 가장자리 또는 상하단 클램프 지점에 **영구히 고착**되어 다시는 `INV-ESCAPE-1`로 소멸하지 못하고 누적되는 회귀가 발견되었다(2026-08-28, "맵 오른쪽 위/아래에 병목처럼 멈춰있는 적들"). 이를 근본적으로 차단하기 위해 **모든 DASH 후보는 항상 ux < 0(좌측 성분)을 만족해야 한다**는 제약을 계약에 고정한다.
+
+DASH가 선택되면 `updateEnemyAi`가 (그 적의 생애 중 단 1회) 아래 레벨 게이팅 규칙에 따라 방향을 정하고, 그 방향 단위벡터에 `BalanceConfig.enemy.speed`를 곱해 `dashVx`/`dashVy`를 정확히 한 번 정한다. 이 값은 그 적이 살아있는 동안(영구) 절대 바뀌지 않는다(재조향 없음, 재선택 없음).
 
 ```
 world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel
-  ? index4 = Math.min(3, Math.floor(rng() * 4))   // 4방향 후보
-  : index8 = Math.min(7, Math.floor(rng() * 8))   // 8방향 후보
+  ? index = 4                                      // 저레벨: 정좌(180deg) 고정, rng 소비 없음
+  : index3 = Math.min(2, Math.floor(rng() * 3)),    // 고레벨: 3방향 후보, rng 1회 소비
+    index = [3, 4, 5][index3]                       // index3=0→3(좌하), 1→4(좌), 2→5(좌상)
 ```
 
-4방향 후보는 아래 8방향 고정 테이블(`FireEnemyProjectiles`/INV-EPROJ-1과 동일한 순서 테이블)에서 인덱스 `[0, 2, 4, 6]`(0/90/180/270도, 대각선 제외)만 사용한다. 8방향 후보는 전체 테이블을 그대로 사용한다.
+- **저레벨(`world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel`):** 방향은 **결정적으로 인덱스 4(정좌, 180도)로 고정**된다. 후보가 하나뿐이므로 **방향 선택에 `rng`를 전혀 소비하지 않는다.**
+- **고레벨(`world.session.level >= BalanceConfig.enemyAi.dashOctoDirectionLevel`):** `rng` 1회를 소비해 `index3 = Math.min(2, Math.floor(rng() * 3))`을 뽑고, 후보 배열 `[3, 4, 5]`(좌하/좌/좌상 순서)에 매핑한다.
+
+아래는 공유 8방향 고정 테이블(`FireEnemyProjectiles`/INV-EPROJ-1과 동일한 순서 테이블)이며, DASH 후보는 이 중 좌측 성분(ux < 0)을 가진 인덱스 `3`(좌하)·`4`(좌)·`5`(좌상) **셋뿐**이다. 인덱스 `0`(우)·`1`(우하)·`2`(하)·`6`(상)·`7`(우상)은 DASH 후보에서 완전히 제외된다.
 ```
-0: ( 1,  0)   // 0deg   (+x)
-1: ( 1,  1)/sqrt(2)  // 45deg
-2: ( 0,  1)   // 90deg  (+y)
-3: (-1,  1)/sqrt(2)  // 135deg
-4: (-1,  0)   // 180deg (-x)
-5: (-1, -1)/sqrt(2)  // 225deg
-6: ( 0, -1)   // 270deg (-y)
-7: ( 1, -1)/sqrt(2)  // 315deg
+0: ( 1,  0)   // 0deg   (+x, 우)
+1: ( 1,  1)/sqrt(2)  // 45deg  (우하)
+2: ( 0,  1)   // 90deg  (+y, 하)
+3: (-1,  1)/sqrt(2)  // 135deg (좌하, SW)
+4: (-1,  0)   // 180deg (-x, 좌)
+5: (-1, -1)/sqrt(2)  // 225deg (좌상, NW)
+6: ( 0, -1)   // 270deg (-y, 상)
+7: ( 1, -1)/sqrt(2)  // 315deg (우상)
 ```
-`applyMovement`는 매 틱 `x += dashVx * dt; y += dashVy * dt`만 수행한다(§4의 `BalanceConfig.enemy.speed` 권장값 참고). 레벨 임계값은 `BalanceConfig.enemyAi.dashOctoDirectionLevel`(권장 `11`)이다.
+`applyMovement`는 매 틱 `x += dashVx * dt; y += dashVy * dt`만 수행한다(§4의 `BalanceConfig.enemy.speed` 권장값 참고). 레벨 임계값은 `BalanceConfig.enemyAi.dashOctoDirectionLevel`(권장 `11`)이며, 이 값 미만이면 정좌 고정, 이상이면 좌하/좌/좌상 3방향 중 rng로 선택한다.
 
 ### INV-EAI-3 — OSCILLATE: y축 사인파 + x축 완만한 좌측 이동 (issue #19)
 
@@ -359,7 +365,7 @@ if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없
 | `enemy.scoreValue` | `10` | |
 | `enemy.manaGain` | `5` | percent |
 | `enemy.contactDamage` | `1` | |
-| `enemyAi.dashOctoDirectionLevel` | `11` | 레벨, 이 값 이상부터 DASH가 8방향 후보를 사용(INV-EAI-2) |
+| `enemyAi.dashOctoDirectionLevel` | `11` | 레벨, 이 값 이상부터 DASH가 좌하/좌/좌상 3방향 중 하나를 rng로 선택, 미만이면 항상 정좌 고정(INV-EAI-2) |
 | `enemyAi.oscillateAmplitudePx` | `40` | px |
 | `enemyAi.oscillatePeriodSec` | `1.2` | sec |
 | `enemyAi.oscillateDriftSpeed` | `40` | px/sec |
@@ -419,3 +425,10 @@ if (enemy.x + enemy.width < 0) enemy.alive = false   // INV-ESCAPE-1, 변경 없
 - **변경 파일:** `src/contracts/entities.ts`(`Enemy.actionRemainSec: number` 필드를 `Enemy.actionInitialized: boolean`으로 교체, `action`/`dashVx`/`oscillateBaseY`/`circleCenterY`/`circleDir` 등 관련 필드 JSDoc을 "영구 유지"로 정정), `src/contracts/systems.ts`(`UpdateEnemyAi` JSDoc을 카운트다운 감소 로직에서 `actionInitialized` 플래그 체크·설정 로직으로 전면 개정, `rng` 소비 횟수를 재선택 기준 2/3회에서 최초 선택 기준 1/2회로 정정, `SpawnTick` JSDoc의 플레이스홀더 조건을 `actionRemainSec === 0`에서 `actionInitialized === false`로 교체), `src/contracts/balance.ts`(`EnemyAiBalance`에서 `actionDurationMinSec`/`actionDurationMaxSec` 필드 제거).
 - **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
 - **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `actionInitialized` 필드 교체와 `actionDurationMinSec`/`actionDurationMaxSec` 제거 반영 후 독립 컴파일 통과.
+
+### 5.4 issue #19 — 적 DASH 방향 후보에서 비좌측 방향(위/아래/오른쪽) 제외 — 영구 고착 회귀 수정 (2026-08-28)
+
+- **배경:** `INV-EAI-1`(스폰 시 1회 선택, 이후 영구 유지) 개정 이후, DASH 방향 후보에 위/아래/오른쪽(x 성분이 0 이상인 방향)이 포함되어 있어 해당 방향으로 선택된 적이 화면 우측 가장자리 또는 상하단 경계에 영구히 고착되어 `INV-ESCAPE-1`(좌측 완전 이탈 시 소멸)로 소멸하지 못하고 누적되는 회귀가 사용자 실플레이에서 확인되었다("맵 오른쪽 위/아래에 병목처럼 멈춰있는 적들"). 모든 DASH 후보는 항상 ux < 0(좌측 성분)을 만족해야 한다는 제약을 계약에 고정한다.
+- **변경 파일:** `src/contracts/systems.ts`(`UpdateEnemyAi`의 DASH 분기 의사코드/JSDoc을 레벨별 rng 소비 0/1회, 후보 인덱스 `[3, 4, 5]`로 갱신), `src/contracts/entities.ts`(`dashVx`/`dashVy` JSDoc에 "항상 좌측 성분(ux<0)을 가짐이 보장된다" 취지 추가), `.claude/_workspace/03_contracts/invariants.md`(`INV-EAI-2` 전면 재작성 — 저레벨은 정좌 고정·rng 소비 0회, 고레벨은 좌하/좌/좌상 3방향 중 rng 1회 선택; `INV-EAI-1`의 rng 소비 서술 정정; §4 밸런스 표 `enemyAi.dashOctoDirectionLevel` 설명 갱신).
+- **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). DASH 방향 후보를 좌측 성분 보장 3방향(+저레벨 정좌 고정)으로 축소한 계약 개정 반영 후 독립 컴파일 통과.

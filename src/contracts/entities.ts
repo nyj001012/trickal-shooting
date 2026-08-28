@@ -88,7 +88,10 @@ export interface Enemy extends EntityBase {
    * px/sec; horizontal velocity for the DASH behavior. Chosen once when DASH is selected
    * (from a fixed compass-direction table gated by `world.session.level`, INV-EAI-2) and
    * held constant for the enemy's entire remaining lifetime. Meaningless while
-   * `action !== 'dash'`.
+   * `action !== 'dash'`. Always negative (unit vector `ux < 0`) — every DASH direction
+   * candidate is guaranteed to carry a leftward component so the enemy can eventually
+   * satisfy the leftward-exit despawn rule (INV-ESCAPE-1) instead of stranding
+   * permanently against a bound (INV-EAI-2).
    */
   dashVx: number;
   /** px/sec; vertical velocity for the DASH behavior. Same lifetime rules as `dashVx`. */

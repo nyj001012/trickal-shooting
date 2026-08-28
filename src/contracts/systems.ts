@@ -288,13 +288,19 @@ export type SpawnTick = (world: GameWorld, dt: number, rng: Rng) => void;
  *    a. `actionIndex = Math.min(2, Math.floor(rng() * 3))` against the fixed table
  *       `0: 'dash', 1: 'oscillate', 2: 'circle'`; set `action` to the result.
  *    b. Exactly one of the following, depending on the `action` chosen in step (a):
- *       - `'dash'`: draw one more `rng()` call for the direction index. While
- *         `world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel`:
- *         `index4 = Math.min(3, Math.floor(rng() * 4))`, mapped through `[0, 2, 4, 6]`
- *         into the fixed 8-direction unit-vector table documented on
- *         `FireEnemyProjectiles` (i.e. restricted to the 0/90/180/270 deg cardinal
- *         entries). Otherwise: `index8 = Math.min(7, Math.floor(rng() * 8))` against the
- *         full 8-entry table (INV-EAI-2). Either way, set
+ *       - `'dash'`: direction MUST always have a leftward component (unit vector
+ *         `ux < 0`) — candidates that point up/down/right permanently strand the enemy
+ *         against the right or top/bottom bounds once behaviors became permanent
+ *         (INV-EAI-1), since it can then never satisfy the leftward-exit despawn rule
+ *         (INV-ESCAPE-1); this regression was found in play and is now closed at the
+ *         contract level (INV-EAI-2). While
+ *         `world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel`: consume
+ *         NO additional `rng()` call — deterministically use index `4` (due west, 180
+ *         deg) from the fixed 8-direction unit-vector table documented on
+ *         `FireEnemyProjectiles`. Otherwise (level at or above the threshold): draw one
+ *         more `rng()` call, `index3 = Math.min(2, Math.floor(rng() * 3))`, mapped
+ *         through `[3, 4, 5]` (southwest, west, northwest — the only three table entries
+ *         with `ux < 0`) into that same table. Either way, set
  *         `dashVx = unitVector.x * BalanceConfig.enemy.speed` and
  *         `dashVy = unitVector.y * BalanceConfig.enemy.speed`.
  *       - `'oscillate'`: consumes no additional `rng`. Set `oscillateBaseY` to this
@@ -308,10 +314,12 @@ export type SpawnTick = (world: GameWorld, dt: number, rng: Rng) => void;
  *       this enemy for the rest of its lifetime; none of these fields are ever
  *       re-selected or mutated by this system again.
  *
- * An enemy being initialized this tick consumes `rng` exactly 1 time (`'oscillate'`) or
- * exactly 2 times (`'dash'` or `'circle'`); an already-initialized enemy consumes 0, on
- * every subsequent tick for the rest of its life. The same initial seed, world, input,
- * and spawn sequence always reproduce the same per-enemy action selection.
+ * An enemy being initialized this tick consumes `rng` exactly 1 time for `'oscillate'` or
+ * for `'dash'` below `dashOctoDirectionLevel` (no extra direction draw), exactly 2 times
+ * for `'circle'` or for `'dash'` at/above `dashOctoDirectionLevel` (one extra direction
+ * draw); an already-initialized enemy consumes 0, on every subsequent tick for the rest
+ * of its life. The same initial seed, world, input, and spawn sequence always reproduce
+ * the same per-enemy action selection.
  * @mutates world.enemies[].action, world.enemies[].actionInitialized,
  *          world.enemies[].dashVx, world.enemies[].dashVy,
  *          world.enemies[].oscillateBaseY, world.enemies[].oscillatePhaseSec,
