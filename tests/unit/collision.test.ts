@@ -4,6 +4,7 @@ import { aabbOverlap, detectCollisions } from '@/game/systems/collision';
 import {
   makeEnemy,
   makeEnemyProjectile,
+  makeHealingItem,
   makePlayer,
   makeRegularProjectile,
   makeSkillProjectile,
@@ -165,5 +166,77 @@ describe('detectCollisions — enemy projectile x player overlaps (issue #17, En
     expect(result.enemyProjectileHits.map((hit) => hit.projectile.id).sort((a, b) => a - b)).toEqual([
       9, 10,
     ]);
+  });
+});
+
+describe('detectCollisions — player x healing item overlaps (issue #21, PlayerItemPickup)', () => {
+  it('reports an alive player x alive healing item overlap as a PlayerItemPickup', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
+    const item = makeHealingItem({ id: 50, x: 200, y: 200, width: 20, height: 20 });
+    const world = makeWorld({ player, healingItems: [item] });
+
+    const result = detectCollisions(world);
+
+    expect(result.playerItemPickups).toHaveLength(1);
+    expect(result.playerItemPickups[0].item.id).toBe(50);
+    // Independent of every other hit list.
+    expect(result.playerContacts).toHaveLength(0);
+    expect(result.regularProjectileHits).toHaveLength(0);
+    expect(result.skillProjectileHits).toHaveLength(0);
+    expect(result.enemyProjectileHits).toHaveLength(0);
+  });
+
+  it('reports no pickup when the player and a healing item do not overlap', () => {
+    const player = makePlayer({ x: 0, y: 0, width: 32, height: 32 });
+    const item = makeHealingItem({ id: 51, x: 400, y: 400, width: 20, height: 20 });
+    const world = makeWorld({ player, healingItems: [item] });
+
+    const result = detectCollisions(world);
+
+    expect(result.playerItemPickups).toHaveLength(0);
+  });
+
+  it('ignores a dead healing item even when its AABB overlaps the player', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
+    const deadItem = makeHealingItem({ id: 52, x: 200, y: 200, alive: false });
+    const world = makeWorld({ player, healingItems: [deadItem] });
+
+    const result = detectCollisions(world);
+
+    expect(result.playerItemPickups).toHaveLength(0);
+  });
+
+  it('does not report a pickup for a healing item that merely touches the player at an edge (strict boundary rule)', () => {
+    const player = makePlayer({ x: 0, y: 0, width: 10, height: 10 });
+    const touching = makeHealingItem({ id: 53, x: 10, y: 0, width: 10, height: 10 }); // b.x === a.x + a.width
+    const world = makeWorld({ player, healingItems: [touching] });
+
+    const result = detectCollisions(world);
+
+    expect(result.playerItemPickups).toHaveLength(0);
+  });
+
+  it('reports multiple simultaneous healing item pickups against the single player', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32 });
+    const first = makeHealingItem({ id: 54, x: 200, y: 200, width: 20, height: 20 });
+    const second = makeHealingItem({ id: 55, x: 210, y: 210, width: 20, height: 20 });
+    const world = makeWorld({ player, healingItems: [first, second] });
+
+    const result = detectCollisions(world);
+
+    expect(result.playerItemPickups).toHaveLength(2);
+    expect(result.playerItemPickups.map((pickup) => pickup.item.id).sort((a, b) => a - b)).toEqual([
+      54, 55,
+    ]);
+  });
+
+  it('reports no pickups while the player itself is dead', () => {
+    const player = makePlayer({ x: 200, y: 200, width: 32, height: 32, alive: false });
+    const item = makeHealingItem({ id: 56, x: 200, y: 200, width: 20, height: 20 });
+    const world = makeWorld({ player, healingItems: [item] });
+
+    const result = detectCollisions(world);
+
+    expect(result.playerItemPickups).toHaveLength(0);
   });
 });

@@ -26,6 +26,7 @@ export const createWorld: CreateWorld = (): GameWorld => ({
   regularProjectiles: [],
   skillProjectiles: [],
   enemyProjectiles: [],
+  healingItems: [],
   session: {
     hp: BALANCE.player.maxHp,
     maxHp: BALANCE.player.maxHp,

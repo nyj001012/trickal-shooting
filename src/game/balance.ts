@@ -106,6 +106,22 @@ export const BALANCE = {
     /** px/sec */
     circleDriftSpeed: 40,
   },
+  healingItem: {
+    /** fraction (0-1) */
+    dropChance: 0.1,
+    /** px */
+    width: 20,
+    /** px */
+    height: 20,
+    /** px/sec */
+    driftVx: -90,
+    /** px/sec */
+    fallVy: 120,
+    /** count */
+    healAmount: 1,
+    /** count */
+    fullHpBonusScore: 500,
+  },
   enemyProjectile: {
     /** px */
     width: 10,

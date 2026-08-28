@@ -27,11 +27,12 @@ export const stepWorld: StepWorld = (world, input, dt, rng): void => {
   spawnTick(world, dt, rng);
   updateEnemyAi(world, dt, rng);
   const collisions = detectCollisions(world);
-  applyCombat(world, collisions, dt);
+  applyCombat(world, collisions, dt, rng);
   applyProgression(world);
 
   world.enemies = world.enemies.filter((enemy) => enemy.alive);
   world.regularProjectiles = world.regularProjectiles.filter((projectile) => projectile.alive);
   world.skillProjectiles = world.skillProjectiles.filter((projectile) => projectile.alive);
   world.enemyProjectiles = world.enemyProjectiles.filter((projectile) => projectile.alive);
+  world.healingItems = world.healingItems.filter((item) => item.alive);
 };

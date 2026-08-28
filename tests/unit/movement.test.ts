@@ -5,6 +5,7 @@ import { BALANCE } from '@/game/balance';
 import {
   makeEnemy,
   makeEnemyProjectile,
+  makeHealingItem,
   makeInputState,
   makePlayer,
   makeRegularProjectile,
@@ -716,5 +717,102 @@ describe('applyMovement — enemy projectiles fixed-velocity travel (issue #17, 
     const world = makeWorld({ enemyProjectiles: [projectile] });
     applyMovement(world, makeInputState(), DT);
     expect(world.enemyProjectiles[0].alive).toBe(false);
+  });
+});
+
+describe('applyMovement — healing items: fixed left+down drift, no clamp on any edge (INV-ITEM-2, issue #21)', () => {
+  it('moves an alive item by its fixed vx/vy every tick and never re-derives them', () => {
+    const item = makeHealingItem({ x: 400, y: 300, vx: -90, vy: 120 });
+    const world = makeWorld({ healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    const moved = world.healingItems[0];
+    expect(moved.x).toBeCloseTo(400 + -90 * DT, 8);
+    expect(moved.y).toBeCloseTo(300 + 120 * DT, 8);
+    expect(moved.vx).toBe(-90);
+    expect(moved.vy).toBe(120);
+    expect(moved.alive).toBe(true);
+  });
+
+  it('does not move a dead healing item', () => {
+    const item = makeHealingItem({ x: 400, y: 300, vx: -90, vy: 120, alive: false });
+    const world = makeWorld({ healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].x).toBe(400);
+    expect(world.healingItems[0].y).toBe(300);
+  });
+
+  it('applies no clamp on any edge — x/y may travel arbitrarily far outside bounds before despawn', () => {
+    const bounds = { width: 800, height: 600 };
+    // A huge vy well beyond the bottom edge in one tick, and no bottom clamp: the item
+    // should NOT be snapped back to `bounds.height`, it should just fall straight
+    // through to wherever the fixed velocity carries it (checked before despawn below).
+    const fastFalling = makeHealingItem({
+      x: 400,
+      y: 590,
+      vx: 0,
+      vy: 100000,
+      width: 20,
+      height: 20,
+    });
+    const world = makeWorld({ bounds, healingItems: [fastFalling] });
+    applyMovement(world, makeInputState(), DT);
+    // Once it exits the bottom edge (y > bounds.height) it despawns rather than being
+    // clamped in place — but the key point is the position was never clamped to the
+    // boundary first; it is removed instead of held at bounds.height.
+    expect(world.healingItems[0].alive).toBe(false);
+    expect(world.healingItems[0].y).not.toBe(bounds.height);
+  });
+
+  it('despawns the tick it fully exits the left edge (x + width < 0)', () => {
+    const item = makeHealingItem({ x: -21, y: 300, width: 20, vx: -1, vy: 0 });
+    const world = makeWorld({ healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].alive).toBe(false);
+  });
+
+  it('stays alive while its right edge is still exactly on the left boundary (strict `<` rule)', () => {
+    const item = makeHealingItem({ x: -20, y: 300, width: 20, vx: 0, vy: 0 });
+    const world = makeWorld({ healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    // x + width === 0 exactly (not < 0): must remain alive this tick.
+    expect(world.healingItems[0].alive).toBe(true);
+  });
+
+  it('despawns the tick it fully exits the bottom edge (y > bounds.height)', () => {
+    const bounds = { width: 800, height: 600 };
+    const item = makeHealingItem({ x: 400, y: 601, vx: 0, vy: 0 });
+    const world = makeWorld({ bounds, healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].alive).toBe(false);
+  });
+
+  it('despawns once vy carries it strictly past the bottom edge (y > bounds.height)', () => {
+    const bounds = { width: 800, height: 600 };
+    const item = makeHealingItem({ x: 400, y: 599, vx: 0, vy: 100, width: 20, height: 20 });
+    const world = makeWorld({ bounds, healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].y).toBeGreaterThan(bounds.height);
+    expect(world.healingItems[0].alive).toBe(false);
+  });
+
+  it('stays alive while y is exactly bounds.height (top/right edges are never checked for this kind)', () => {
+    const bounds = { width: 800, height: 600 };
+    const item = makeHealingItem({ x: 400, y: 600, vx: 0, vy: 0, width: 20, height: 20 });
+    const world = makeWorld({ bounds, healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    expect(world.healingItems[0].y).toBe(600);
+    expect(world.healingItems[0].alive).toBe(true);
+  });
+
+  it('never clamps x back into bounds even far past the right edge (no clamp on any edge, unlike every other entity kind)', () => {
+    const bounds = { width: 800, height: 600 };
+    const item = makeHealingItem({ x: 5000, y: 300, vx: 100000, vy: 0, width: 20, height: 20 });
+    const world = makeWorld({ bounds, healingItems: [item] });
+    applyMovement(world, makeInputState(), DT);
+    // vx is positive here purely to prove the point defensively: even driven far to
+    // the right, nothing clamps it back to bounds.width - width (contrast with every
+    // other entity kind, which clamps or despawns on the right edge).
+    expect(world.healingItems[0].x).toBeGreaterThan(bounds.width);
+    expect(world.healingItems[0].alive).toBe(true);
   });
 });

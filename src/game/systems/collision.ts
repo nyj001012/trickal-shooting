@@ -9,6 +9,7 @@ import type {
   DetectCollisions,
   EnemyProjectileHit,
   PlayerContact,
+  PlayerItemPickup,
   RegularProjectileHit,
   SkillProjectileHit,
 } from '@/contracts';
@@ -58,5 +59,21 @@ export const detectCollisions: DetectCollisions = (world): CollisionResult => {
     }
   }
 
-  return { regularProjectileHits, skillProjectileHits, playerContacts, enemyProjectileHits };
+  const playerItemPickups: PlayerItemPickup[] = [];
+  if (world.player.alive) {
+    for (const item of world.healingItems) {
+      if (!item.alive) continue;
+      if (aabbOverlap(world.player, item)) {
+        playerItemPickups.push({ item });
+      }
+    }
+  }
+
+  return {
+    regularProjectileHits,
+    skillProjectileHits,
+    playerContacts,
+    enemyProjectileHits,
+    playerItemPickups,
+  };
 };

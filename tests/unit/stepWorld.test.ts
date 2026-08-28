@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { stepWorld } from '@/game/stepWorld';
 import { createRng } from '@/game/rng';
 import { BALANCE } from '@/game/balance';
-import { makeEnemy, makeInputState, makePlayer, makeWorld } from '../helpers/fixtures';
+import {
+  makeEnemy,
+  makeHealingItem,
+  makeInputState,
+  makePlayer,
+  makeRegularProjectile,
+  makeWorld,
+} from '../helpers/fixtures';
 import type { GameWorld, InputState } from '@/contracts';
 
 const DT = BALANCE.loop.FIXED_STEP_MS / 1000;
@@ -178,5 +185,64 @@ describe('stepWorld — enemy escape has no session side effects (INV-ESCAPE-1)'
     expect(world.session.hp).toBe(3 - contactingEnemy.contactDamage);
     expect(world.player.invulnRemainSec).toBe(BALANCE.player.invulnSec);
     expect(world.enemies).toHaveLength(0);
+  });
+});
+
+describe('stepWorld — healing items (issue #21: applyCombat now receives rng, prune filters healingItems)', () => {
+  it('prunes healing items marked dead during the tick from world.healingItems', () => {
+    const alreadyDead = makeHealingItem({ id: 60, alive: false });
+    const world = makeWorld({
+      healingItems: [alreadyDead],
+      spawner: { intervalRemainSec: 999, currentIntervalSec: 999 },
+    });
+
+    stepWorld(world, makeInputState(), DT, createRng(1));
+
+    expect(world.healingItems).toHaveLength(0);
+  });
+
+  it('does not consume the world/session in an unexpected way when applyCombat rolls the INV-ITEM-1 drop chance for a projectile kill', () => {
+    // The signature-only concern here: stepWorld must actually pass its `rng` stream
+    // through to applyCombat (step 7) without throwing, and any dropped item must end
+    // up in world.healingItems and survive the end-of-tick prune while alive.
+    const enemy = makeEnemy({ id: 61, hp: 1, x: 200, y: 300, width: 28, height: 28 });
+    const projectile = makeRegularProjectile({
+      id: 62,
+      x: enemy.x,
+      y: enemy.y,
+      width: 8,
+      height: 4,
+      damage: 5,
+    });
+    const world = makeWorld({
+      enemies: [enemy],
+      regularProjectiles: [projectile],
+      spawner: { intervalRemainSec: 999, currentIntervalSec: 999 },
+    });
+
+    expect(() => stepWorld(world, makeInputState(), DT, createRng(1))).not.toThrow();
+    expect(world.enemies).toHaveLength(0);
+    for (const item of world.healingItems) {
+      expect(item.alive).toBe(true);
+    }
+  });
+
+  it('reproduces identical world.healingItems for two runs given the same seed and input sequence (determinism, issue #21)', () => {
+    function run(): { hp: number; healingItemCount: number } {
+      const world = makeWorld({
+        enemies: [makeEnemy({ id: 70, hp: 1, x: 150, y: 300, width: 28, height: 28 })],
+        session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
+        spawner: { intervalRemainSec: 999, currentIntervalSec: 999 },
+      });
+      const rng = createRng(99);
+      for (let tick = 0; tick < 60; tick += 1) {
+        stepWorld(world, makeInputState(), DT, rng);
+      }
+      return { hp: world.session.hp, healingItemCount: world.healingItems.length };
+    }
+
+    const runA = run();
+    const runB = run();
+    expect(runA).toEqual(runB);
   });
 });

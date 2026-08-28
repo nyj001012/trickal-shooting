@@ -32,4 +32,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, world: Readonly<GameWor
   for (const projectile of world.enemyProjectiles) {
     drawEntity(ctx, projectile);
   }
+  for (const item of world.healingItems) {
+    drawEntity(ctx, item);
+  }
 }

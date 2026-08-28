@@ -172,4 +172,13 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
       projectile.alive = false;
     }
   }
+
+  for (const item of world.healingItems) {
+    if (!item.alive) continue;
+    item.x += item.vx * dt;
+    item.y += item.vy * dt;
+    if (item.y > world.bounds.height || item.x + item.width < 0) {
+      item.alive = false;
+    }
+  }
 };

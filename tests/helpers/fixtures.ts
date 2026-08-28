@@ -13,6 +13,7 @@ import type {
   EnemyProjectile,
   GameSession,
   GameWorld,
+  HealingItem,
   InputState,
   Player,
   RegularProjectile,
@@ -145,6 +146,27 @@ export function makeSkillProjectile(overrides: Partial<SkillProjectile> = {}): S
   };
 }
 
+/**
+ * A healing item ("회복 젤리", issue #21). Defaults to a fixed-velocity drift/fall
+ * (left + down, INV-ITEM-2) at a plausible mid-field position; tests that care about
+ * a specific despawn edge or a specific enemy-center placement override x/y/vx/vy
+ * explicitly rather than relying on these values.
+ */
+export function makeHealingItem(overrides: Partial<HealingItem> = {}): HealingItem {
+  return {
+    id: 5,
+    kind: 'healingItem',
+    x: 400,
+    y: 300,
+    width: 20,
+    height: 20,
+    alive: true,
+    vx: -90,
+    vy: 120,
+    ...overrides,
+  };
+}
+
 export function makeSession(overrides: Partial<GameSession> = {}): GameSession {
   return {
     hp: 3,
@@ -173,6 +195,7 @@ export function makeWorld(overrides: Partial<GameWorld> = {}): GameWorld {
     regularProjectiles: [],
     skillProjectiles: [],
     enemyProjectiles: [],
+    healingItems: [],
     session: makeSession(),
     spawner: makeSpawner(),
     nextEntityId: 100,

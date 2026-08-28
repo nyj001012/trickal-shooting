@@ -21,6 +21,7 @@ const RENDER_TABLE: Readonly<Record<EntityKind, RenderDescriptor>> = {
   regularProjectile: { shape: 'rect', colorToken: 'regularProjectile' },
   skillProjectile: { shape: 'rect', colorToken: 'skillProjectile' },
   enemyProjectile: { shape: 'circle', colorToken: 'enemyProjectile' },
+  healingItem: { shape: 'rect', colorToken: 'healingItem' },
 };
 
 /**
