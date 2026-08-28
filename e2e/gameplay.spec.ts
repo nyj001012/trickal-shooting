@@ -858,4 +858,112 @@ test.describe('적 AI 이동 패턴: DASH/OSCILLATE/CIRCLE (issue #19)', () => {
     expect(terminatedTracks.length).toBeGreaterThan(0);
     expect(exitedLeft).toBe(true);
   });
+
+  test('DASH 방향 정정 이후에도 적이 화면 오른쪽 가장자리에 y까지 고정된 채 영구 고착되지 않는다', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+
+    // 회귀 배경(issue #19 후속, 2026-08-28): 정정 전 DASH는 기본(저)레벨에서 4방향 후보
+    // [0,2,4,6](우/하/좌/상)을 균등 확률로 골랐다. 좌측 성분이 없는 우/하/상이 뽑히면
+    // `applyMovement`의 `enemy.x = Math.min(enemy.x, bounds.width - enemy.width)` 클램프가
+    // 스폰 즉시 x를 772로 고정하고, dashVx가 0(순수 상/하) 또는 양수(우)라서 x가 다시는
+    // 줄지 않는다. 순수 상/하 방향은 y마저 상하 경계(0 또는 572)에 부딪히면 dashVx/dashVy가
+    // 다시 계산되지 않는 계약(actionInitialized 1회 고정, INV-EAI-1)상 (x,y) 모두가 그 프레임에
+    // 영원히 멈춘다 — 사용자가 보고한 "맵 오른쪽 위/아래에 병목처럼 멈춰있는 적들"의 정체다.
+    // 이 버그는 dashOctoDirectionLevel(=11) 미만, 즉 게임 시작 직후의 기본 레벨(1)에서부터
+    // 이미 발생했다 — 별도로 레벨을 올릴 필요 없이 기본 플레이만으로 재현/검증 가능하다.
+    // 정정 후에는 저레벨에서 rng를 소비하지 않고 항상 서(180deg, table index 4)로 고정되므로
+    // dashVx는 항상 음수이고, OSCILLATE/CIRCLE도 항상 좌측으로 드리프트하므로(각 40px/sec)
+    // 세 행동 모두 이 클램프 지점에 영구 고착될 수 없다.
+    const candidateSeeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    // 위 탐색적 실측(플레이어 무입력, 자동사격만)상 모든 후보 시드가 최소 1000틱(16.7초)
+    // 동안은 status: 'playing'을 유지한다. 800틱(13.3초)까지만 관측해 안전 여유를 둔다.
+    const TICKS_PER_SAMPLE = 20;
+    const SAMPLES_PER_SEED = 40; // 40 * 20 = 800 ticks ≈ 13.3s
+    const MAX_STEP_DISTANCE_PX = 150; // 이 파일의 다른 궤적 추적 테스트와 동일한 여유
+    const RIGHT_EDGE_THRESHOLD_PX = 750; // bounds.width(800) - enemy.width(28) - 여유(22)
+    const STUCK_EPS_PX = 2; // 부동소수/렌더 오차 여유
+    const STUCK_MIN_CONSECUTIVE_POINTS = 5; // 4 * ~0.33s ≈ 1.3초 이상 완전히 정지
+
+    interface StuckFinding {
+      readonly seed: number;
+      readonly points: readonly TrackPoint[];
+    }
+
+    function findStuckNearRightEdge(
+      tracks: readonly EntityTrack[],
+    ): StuckFinding['points'] | undefined {
+      for (const track of tracks) {
+        for (
+          let start = 0;
+          start + STUCK_MIN_CONSECUTIVE_POINTS <= track.points.length;
+          start += 1
+        ) {
+          const window = track.points.slice(start, start + STUCK_MIN_CONSECUTIVE_POINTS);
+          const xs = window.map((point) => point.x);
+          const ys = window.map((point) => point.y);
+          const xRange = Math.max(...xs) - Math.min(...xs);
+          const yRange = Math.max(...ys) - Math.min(...ys);
+          const allNearRightEdge = xs.every((x) => x >= RIGHT_EDGE_THRESHOLD_PX);
+          if (xRange < STUCK_EPS_PX && yRange < STUCK_EPS_PX && allNearRightEdge) {
+            return window;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    let stuckFinding: StuckFinding | undefined;
+    let sawNearSpawnActivity = false;
+    let totalTrackedPoints = 0;
+
+    for (const candidateSeed of candidateSeeds) {
+      await page.goto('/?e2e=1');
+      await waitForTestBridge(page);
+      await page.evaluate((value) => window.__TRICKAL_TEST__?.seed(value), candidateSeed);
+      await installEntityTrace(page);
+
+      const framePoints: { x: number; y: number }[][] = [];
+      for (let i = 0; i < SAMPLES_PER_SEED; i += 1) {
+        const snapshot = await page.evaluate(async (ticks) => {
+          window.__TRICKAL_TEST__?.stepFrames(ticks);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          return window.__TRICKAL_TEST__?.getSnapshot();
+        }, TICKS_PER_SAMPLE);
+        const trace = await readEntityTrace(page);
+        const points = trace
+          .filter((record) => record.shape === 'circle' && record.color === '#90ee90')
+          .map((record) => ({ x: record.x + record.width / 2, y: record.y + record.height / 2 }));
+        framePoints.push(points);
+        if (!snapshot || snapshot.status !== 'playing') break;
+      }
+
+      const tracks = buildPositionTracks(framePoints, MAX_STEP_DISTANCE_PX);
+      totalTrackedPoints += tracks.reduce((sum, track) => sum + track.points.length, 0);
+      if (tracks.some((track) => track.points.some((point) => point.x >= 700))) {
+        sawNearSpawnActivity = true;
+      }
+
+      const stuckWindow = findStuckNearRightEdge(tracks);
+      if (stuckWindow) {
+        stuckFinding = { seed: candidateSeed, points: stuckWindow };
+        break;
+      }
+    }
+
+    if (stuckFinding) {
+      throw new Error(
+        `seed=${stuckFinding.seed}에서 적이 화면 오른쪽 가장자리 근처(x>=${RIGHT_EDGE_THRESHOLD_PX})에 ` +
+          `${STUCK_MIN_CONSECUTIVE_POINTS}개 연속 샘플 이상 (x,y) 변화 없이 고착되었습니다: ` +
+          JSON.stringify(stuckFinding.points),
+      );
+    }
+
+    // 위양성 방지: 최소한 관측이 스폰 지점(x=800이 클램프된 772 부근) 근처의 실제 활동을
+    // 포착했는지 확인한다 — 그렇지 않다면 "고착이 없었다"는 결과가 애초에 그 구간을 전혀
+    // 관측하지 못해서 생긴 무의미한 통과일 수 있다.
+    expect(sawNearSpawnActivity).toBe(true);
+    expect(totalTrackedPoints).toBeGreaterThan(0);
+  });
 });
