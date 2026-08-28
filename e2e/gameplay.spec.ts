@@ -213,6 +213,134 @@ function minGapToColor(playerBox: BoxLike, trace: readonly EntityTraceRecord[], 
   return Math.min(...boxes.map((box) => boxGapPx(playerBox, box)));
 }
 
+// --- issue #21: 회복 젤리(healingItem) 관측용 오토파일럿 -------------------------------
+//
+// TestBridge는 3개 메서드로 고정되어 있어(design.md §6.9) world의 healingItems 배열을
+// 직접 조회할 수 없다. 대신 실제 플레이어가 할 법한 입력(상하좌우 이동 + Space 스킬)만
+// 스크립트로 대신 눌러, "치트 없이 순수 게임플레이로" 젤리 드롭·획득을 재현한다.
+// 드롭(INV-ITEM-1)은 일반탄/스킬탄 처치에서만 10% 확률로 발생하므로, farm 모드는 근접한
+// 적을 회피하면서(오인 접촉 최소화) MANA가 충분하면 스킬을 태워 처치 수를 늘린다.
+// 젤리가 화면에 보이면 seek 모드로 전환해 그 중심을 향해 이동한다.
+const HEALING_ITEM_COLOR = '#87ceeb';
+const ENEMY_COLOR = '#90ee90';
+const PLAYER_COLORS = new Set(['#ffb6c1', '#ff4d4d']);
+const HEALING_ITEM_DANGER_RADIUS_PX = 90;
+
+interface AutopilotSnapshot {
+  readonly hp: number;
+  readonly score: number;
+  readonly mana: number;
+  readonly status: string;
+}
+
+interface AutopilotKeyState {
+  mode: 'farm' | 'seek';
+  upDown?: 'ArrowUp' | 'ArrowDown';
+  leftRight?: 'ArrowLeft' | 'ArrowRight';
+  spaceDown: boolean;
+}
+
+async function setHeldKey(page: Page, current: string | undefined, desired: string | undefined): Promise<void> {
+  if (current === desired) return;
+  if (current) await page.keyboard.up(current);
+  if (desired) await page.keyboard.down(desired);
+}
+
+/**
+ * 한 오토파일럿 스텝을 수행한다: 직전에 읽은 트레이스로 이동 방향/스킬 여부를 결정하고,
+ * 실제 키 입력을 갱신한 뒤 정확히 `stepTicks`틱만큼 시뮬레이션을 진행하고 1프레임
+ * 렌더링해 그 결과(엔티티 위치 + HUD 스냅샷)를 반환한다. 호출자는 반환된 `items`로
+ * 원하는 종료 조건(드롭 관측, 소지, 회복/보너스 발생)을 직접 판단한다.
+ */
+async function stepHealingItemAutopilot(
+  page: Page,
+  trace: readonly EntityTraceRecord[],
+  keyState: AutopilotKeyState,
+  lastMana: number,
+  stepTicks: { farm: number; seek: number },
+): Promise<{
+  snapshot: AutopilotSnapshot | undefined;
+  items: BoxLike[];
+  enemies: BoxLike[];
+  player: BoxLike | undefined;
+}> {
+  const enemies = trace.filter((record) => record.shape === 'circle' && record.color === ENEMY_COLOR);
+  const player = trace.find((record) => record.shape === 'rect' && PLAYER_COLORS.has(record.color));
+  const items = trace.filter((record) => record.color === HEALING_ITEM_COLOR);
+
+  if (items.length > 0 && keyState.mode === 'farm') keyState.mode = 'seek';
+  if (items.length === 0 && keyState.mode === 'seek') keyState.mode = 'farm';
+
+  let desiredUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
+  let desiredLeftRight: 'ArrowLeft' | 'ArrowRight' | undefined;
+
+  if (keyState.mode === 'seek' && player && items.length > 0) {
+    const target = items[0];
+    const targetCenterX = target.x + target.width / 2;
+    const targetCenterY = target.y + target.height / 2;
+    const playerCenterX = player.x + player.width / 2;
+    const playerCenterY = player.y + player.height / 2;
+    const dx = targetCenterX - playerCenterX;
+    const dy = targetCenterY - playerCenterY;
+    if (dx > 3) desiredLeftRight = 'ArrowRight';
+    else if (dx < -3) desiredLeftRight = 'ArrowLeft';
+    if (dy > 3) desiredUpDown = 'ArrowDown';
+    else if (dy < -3) desiredUpDown = 'ArrowUp';
+  } else if (keyState.mode === 'farm' && player) {
+    const playerCenterX = player.x + player.width / 2;
+    const playerCenterY = player.y + player.height / 2;
+    const threats = enemies.filter(
+      (enemy) =>
+        Math.hypot(
+          enemy.x + enemy.width / 2 - playerCenterX,
+          enemy.y + enemy.height / 2 - playerCenterY,
+        ) < HEALING_ITEM_DANGER_RADIUS_PX,
+    );
+    if (threats.length > 0) {
+      const averageThreatY =
+        threats.reduce((sum, enemy) => sum + enemy.y + enemy.height / 2, 0) / threats.length;
+      desiredUpDown = averageThreatY < playerCenterY ? 'ArrowDown' : 'ArrowUp';
+    }
+  }
+
+  await setHeldKey(page, keyState.upDown, desiredUpDown);
+  keyState.upDown = desiredUpDown;
+  await setHeldKey(page, keyState.leftRight, desiredLeftRight);
+  keyState.leftRight = desiredLeftRight;
+
+  if (!keyState.spaceDown && lastMana >= 20 && keyState.mode === 'farm') {
+    await page.keyboard.down('Space');
+    keyState.spaceDown = true;
+  } else if (keyState.spaceDown && (lastMana <= 0 || keyState.mode === 'seek')) {
+    await page.keyboard.up('Space');
+    keyState.spaceDown = false;
+  }
+
+  const ticks = keyState.mode === 'seek' ? stepTicks.seek : stepTicks.farm;
+  const snapshot = await page.evaluate(async (tickCount) => {
+    window.__TRICKAL_TEST__?.stepFrames(tickCount);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const bridgeSnapshot = window.__TRICKAL_TEST__?.getSnapshot();
+    return bridgeSnapshot
+      ? {
+          hp: bridgeSnapshot.hp,
+          score: bridgeSnapshot.score,
+          mana: bridgeSnapshot.mana,
+          status: bridgeSnapshot.status,
+        }
+      : undefined;
+  }, ticks);
+
+  return { snapshot, items, enemies, player };
+}
+
+/** 오토파일럿 종료 시 눌려 있는 키를 전부 해제한다(다음 테스트로 상태가 새지 않도록). */
+async function releaseAutopilotKeys(page: Page, keyState: AutopilotKeyState): Promise<void> {
+  if (keyState.upDown) await page.keyboard.up(keyState.upDown);
+  if (keyState.leftRight) await page.keyboard.up(keyState.leftRight);
+  if (keyState.spaceDown) await page.keyboard.up('Space');
+}
+
 test('앱이 초기 HUD와 접근 가능한 게임 캔버스로 부팅된다', async ({ page }) => {
   await page.goto('/');
 
@@ -965,5 +1093,303 @@ test.describe('적 AI 이동 패턴: DASH/OSCILLATE/CIRCLE (issue #19)', () => {
     // 관측하지 못해서 생긴 무의미한 통과일 수 있다.
     expect(sawNearSpawnActivity).toBe(true);
     expect(totalTrackedPoints).toBeGreaterThan(0);
+  });
+});
+
+test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?e2e=1');
+    await waitForTestBridge(page);
+  });
+
+  // 아래 세 시나리오 모두 TestBridge의 seed()로 결정적 초기 상태를 고정한 뒤, 매 스텝마다
+  // 캔버스 트레이스만 보고 실제 방향키/Space를 대신 눌러주는 "오토파일럿"으로 오직 정상적인
+  // 플레이 입력(회피 이동 + 자동 일반탄 + 스킬)만으로 드롭·획득을 재현한다(TestBridge에 젤리를
+  // 직접 주입하는 치트 경로는 없다 — design.md §6.9). seed=2/3은 이 저장소 환경(webServer가
+  // 구동한 프로덕션 빌드, 결정적 rng, 실제 키보드 이벤트)에서 반복 실행해도 동일한 결과를
+  // 내는 것을 사전에 확인했다(로컬 6/6 재현) — 반면 "적을 향해 일부러 다가가 접촉시키는"
+  // 방식은 실제 키 이벤트 디스패치의 미세한 실시간 타이밍에 결과가 갈리는 것을 확인해
+  // (동일 스크립트·동일 seed로도 성공/게임오버가 뒤섞임) 채택하지 않았다. 이 세 시나리오의
+  // "체력 감소"는 실제 플레이에서 벌어지는 두 합법적 피해 경로(직접 접촉 또는 적 투사체
+  // 피격) 중 하나이며, 어느 쪽이든 INV-ITEM-3(젤리 획득 시 회복/보너스)의 전제 조건인
+  // "hp < maxHp" 상태를 동일하게 만족한다.
+
+  test('적 처치로 드롭된 회복 젤리가 하늘색 사각형으로 렌더링되고 좌측+하단으로 이동한다', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+
+    const candidateSeeds = [3, 2, 1];
+    let sampledPoints: { x: number; y: number }[] = [];
+
+    for (const candidateSeed of candidateSeeds) {
+      await page.goto('/?e2e=1');
+      await waitForTestBridge(page);
+      await page.evaluate((value) => window.__TRICKAL_TEST__?.seed(value), candidateSeed);
+      await installEntityTrace(page);
+
+      const keyState: AutopilotKeyState = { mode: 'farm', spaceDown: false };
+      let lastMana = 0;
+      const points: { x: number; y: number }[] = [];
+
+      for (let i = 0; i < 300; i += 1) {
+        const trace = await readEntityTrace(page);
+        const { snapshot, items } = await stepHealingItemAutopilot(page, trace, keyState, lastMana, {
+          farm: 5,
+          seek: 1,
+        });
+        // 매 틱 그려지는 healingItem이 정확히 1개일 때만 표본으로 쓴다 — 두 번째 드롭이
+        // 우연히 겹치면 서로 다른 두 젤리의 좌표가 섞여 "이동 추세" 판정이 오염된다.
+        if (items.length === 1) {
+          const item = items[0];
+          points.push({ x: item.x + item.width / 2, y: item.y + item.height / 2 });
+        }
+        if (!snapshot) break;
+        lastMana = snapshot.mana;
+        if (snapshot.status !== 'playing') break;
+        if (points.length >= 20) break;
+      }
+      await releaseAutopilotKeys(page, keyState);
+
+      if (points.length >= 15) {
+        sampledPoints = points;
+        break;
+      }
+    }
+
+    expect(sampledPoints.length).toBeGreaterThanOrEqual(15);
+
+    const first = sampledPoints[0];
+    const last = sampledPoints[sampledPoints.length - 1];
+    // INV-ITEM-2: vx는 항상 음수(좌측 드리프트), vy는 항상 양수(하강) — 클램프가 없으므로
+    // 표본 구간 전체에서 순수하게 좌측+하단으로만 이동해야 한다.
+    expect(last.x).toBeLessThan(first.x);
+    expect(last.y).toBeGreaterThan(first.y);
+
+    // 스텝 사이 역행(오른쪽/위쪽으로의 이동)이 없는지도 확인한다 — 부동소수 오차만 허용.
+    for (let i = 1; i < sampledPoints.length; i += 1) {
+      expect(sampledPoints[i].x).toBeLessThanOrEqual(sampledPoints[i - 1].x + 0.5);
+      expect(sampledPoints[i].y).toBeGreaterThanOrEqual(sampledPoints[i - 1].y - 0.5);
+    }
+  });
+
+  test('체력이 낮아진 상태에서 회복 젤리를 먹으면 체력이 정확히 1 증가한다', async ({ page }) => {
+    test.setTimeout(60_000);
+
+    await page.evaluate(() => window.__TRICKAL_TEST__?.seed(2));
+    await installEntityTrace(page);
+
+    const keyState: AutopilotKeyState = { mode: 'farm', spaceDown: false };
+    let lastSnapshot: AutopilotSnapshot | undefined;
+    let hpBeforePickup = -1;
+    let scoreBeforePickup = -1;
+    let hpAfterPickup = -1;
+
+    for (let i = 0; i < 400; i += 1) {
+      const trace = await readEntityTrace(page);
+      const { snapshot } = await stepHealingItemAutopilot(page, trace, keyState, lastSnapshot?.mana ?? 0, {
+        farm: 5,
+        seek: 1,
+      });
+      if (!snapshot) break;
+      // hp가 오른 유일한 계기는 INV-ITEM-3의 회복 젤리 획득뿐이다(다른 회복 수단 없음).
+      if (lastSnapshot && snapshot.hp > lastSnapshot.hp) {
+        hpBeforePickup = lastSnapshot.hp;
+        scoreBeforePickup = lastSnapshot.score;
+        hpAfterPickup = snapshot.hp;
+        lastSnapshot = snapshot;
+        break;
+      }
+      lastSnapshot = snapshot;
+      if (snapshot.status !== 'playing') break;
+    }
+
+    // design.md §6.1: rAF 루프는 e2e 모드에서도 실시간으로 계속 돌고 HUD 발행은 최대 100ms
+    // 스로틀되므로, 픽업 직후 몇 번의 추가 await(키 해제 등) 이후 DOM을 예전 스냅샷 값과
+    // 비교하면 그 사이의 자연스러운 추가 이벤트 때문에 어긋날 수 있다. DOM 검증은 그 순간
+    // 다시 읽은 bridge 값과 같은 evaluate 안에서 함께 캡처해 형식·정합성만 확인한다.
+    const liveCheck = await page.evaluate(() => {
+      const hpText = document.querySelector('[data-testid="hud-hp"]')?.textContent ?? '';
+      const snapshot = window.__TRICKAL_TEST__?.getSnapshot();
+      return { hpText, hp: snapshot?.hp };
+    });
+    await releaseAutopilotKeys(page, keyState);
+
+    expect(lastSnapshot?.status).toBe('playing');
+    // 픽업 직전 hp가 실제로 maxHp(3, BalanceConfig.player.maxHp) 미만이었는지 — 이 조건이
+    // 거짓이면 아래 +1 검증이 "가득 찬 상태에서의 만피 보너스" 시나리오와 섞여버린다.
+    expect(hpBeforePickup).toBeGreaterThan(0);
+    expect(hpBeforePickup).toBeLessThan(3);
+    // 픽업이 벌어진 바로 그 틱의 bridge 스냅샷끼리 비교한 것이라 실시간 드리프트와
+    // 무관하게 정확하다(INV-ITEM-3의 핵심 계약: 정확히 +1).
+    expect(hpAfterPickup).toBe(hpBeforePickup + 1);
+    // INV-ITEM-3: 회복 경로에서는 SCORE가 변하지 않는다(만피 보너스와 상호 배타적).
+    expect(lastSnapshot?.score).toBe(scoreBeforePickup);
+    expect(liveCheck.hpText).toBe(`♥ ${liveCheck.hp} / 3`);
+  });
+
+  test('체력이 가득 찬 상태에서 회복 젤리를 먹으면 체력 변화 없이 점수가 정확히 500 증가한다', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+
+    await page.evaluate(() => window.__TRICKAL_TEST__?.seed(3));
+    await installEntityTrace(page);
+
+    const keyState: AutopilotKeyState = { mode: 'farm', spaceDown: false };
+    let lastSnapshot: AutopilotSnapshot | undefined;
+    let hpAtPickup = -1;
+    let scoreBeforePickup = -1;
+    let scoreAfterPickup = -1;
+
+    for (let i = 0; i < 400; i += 1) {
+      const trace = await readEntityTrace(page);
+      const { snapshot } = await stepHealingItemAutopilot(page, trace, keyState, lastSnapshot?.mana ?? 0, {
+        farm: 5,
+        seek: 1,
+      });
+      if (!snapshot) break;
+      // 만피 보너스(INV-ITEM-3)는 hp가 그대로인 채 SCORE만 오르는 픽업으로 식별한다.
+      // score가 100 넘게 뛰는 것은 일반 처치(+10)로는 나올 수 없는 폭이라 만피 보너스
+      // (+500)만의 신호로 안전하게 구분된다.
+      if (
+        lastSnapshot &&
+        snapshot.hp === lastSnapshot.hp &&
+        snapshot.score > lastSnapshot.score + 100
+      ) {
+        hpAtPickup = snapshot.hp;
+        scoreBeforePickup = lastSnapshot.score;
+        scoreAfterPickup = snapshot.score;
+        lastSnapshot = snapshot;
+        break;
+      }
+      lastSnapshot = snapshot;
+      if (snapshot.status !== 'playing') break;
+    }
+
+    await releaseAutopilotKeys(page, keyState);
+
+    expect(lastSnapshot?.status).toBe('playing');
+    expect(hpAtPickup).toBe(3); // maxHp(BalanceConfig.player.maxHp) — 만피 상태였음을 확인
+    // 만피 보너스(INV-ITEM-3)의 핵심 계약: 정확히 +500. 이 값은 픽업이 벌어진 바로 그 틱의
+    // bridge 스냅샷끼리(같은 evaluate 호출 내) 비교한 것이라 실시간 드리프트와 무관하게
+    // 정확하다.
+    expect(scoreAfterPickup - scoreBeforePickup).toBe(500);
+
+    // design.md §6.1: rAF 루프는 e2e 모드에서도 실시간으로 계속 돌고 있어 이 시점 이후로도
+    // 자동사격 처치가 계속 SCORE를 올릴 수 있다(실측: 캡처 550 → 이후 자연 진행으로 570).
+    // 따라서 DOM 쪽은 "그 정확한 값과 일치"가 아니라 "만피 보너스가 반영된 값 이상으로,
+    // 올바른 형식으로 표시되는가"만 확인한다 — hudStore 발행 스로틀(최대 100ms)도 함께
+    // 흡수하기 위해 폴링한다.
+    await expect(page.getByTestId('hud-hp')).toHaveText('♥ 3 / 3');
+    await expect
+      .poll(async () => {
+        const text = await page.getByTestId('hud-score').textContent();
+        const match = /^SCORE: (\d+)$/.exec(text ?? '');
+        return match ? Number(match[1]) : Number.NaN;
+      })
+      .toBeGreaterThanOrEqual(scoreAfterPickup);
+  });
+
+  test('플레이어가 먹지 않고 방치한 회복 젤리는 화면 밖으로 사라져 더 이상 그려지지 않는다', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+
+    // 이 시나리오는 의도적으로 젤리를 쫓지 않는다 — 위 helper의 자동 seek 전환 없이,
+    // 근접 적 회피만 계속 수행해 INV-ITEM-2의 "클램프 없는 자연 소멸"만 관찰한다.
+    const candidateSeeds = [3, 2, 1];
+    let exitedProperly = false;
+    let sawItem = false;
+    let scoreAtExitStart = -1;
+    let scoreAtExitEnd = -1;
+
+    for (const candidateSeed of candidateSeeds) {
+      await page.goto('/?e2e=1');
+      await waitForTestBridge(page);
+      await page.evaluate((value) => window.__TRICKAL_TEST__?.seed(value), candidateSeed);
+      await installEntityTrace(page);
+
+      let currentUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
+      const framePoints: BoxLike[][] = [];
+      const scoresByIteration: number[] = [];
+      sawItem = false;
+
+      for (let i = 0; i < 200; i += 1) {
+        const trace = await readEntityTrace(page);
+        const enemies = trace.filter((record) => record.shape === 'circle' && record.color === ENEMY_COLOR);
+        const player = trace.find((record) => record.shape === 'rect' && PLAYER_COLORS.has(record.color));
+        const items = trace.filter((record) => record.color === HEALING_ITEM_COLOR);
+        if (items.length > 0) sawItem = true;
+        framePoints.push(items);
+
+        let desiredUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
+        if (player) {
+          const playerCenterX = player.x + player.width / 2;
+          const playerCenterY = player.y + player.height / 2;
+          const threats = enemies.filter(
+            (enemy) =>
+              Math.hypot(
+                enemy.x + enemy.width / 2 - playerCenterX,
+                enemy.y + enemy.height / 2 - playerCenterY,
+              ) < HEALING_ITEM_DANGER_RADIUS_PX,
+          );
+          if (threats.length > 0) {
+            const averageThreatY =
+              threats.reduce((sum, enemy) => sum + enemy.y + enemy.height / 2, 0) / threats.length;
+            desiredUpDown = averageThreatY < playerCenterY ? 'ArrowDown' : 'ArrowUp';
+          }
+        }
+        await setHeldKey(page, currentUpDown, desiredUpDown);
+        currentUpDown = desiredUpDown;
+
+        const snapshot = await page.evaluate(async () => {
+          window.__TRICKAL_TEST__?.stepFrames(5);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const bridgeSnapshot = window.__TRICKAL_TEST__?.getSnapshot();
+          return bridgeSnapshot
+            ? {
+                hp: bridgeSnapshot.hp,
+                score: bridgeSnapshot.score,
+                mana: bridgeSnapshot.mana,
+                status: bridgeSnapshot.status,
+              }
+            : undefined;
+        });
+        scoresByIteration.push(snapshot?.score ?? (scoresByIteration.at(-1) ?? 0));
+        if (!snapshot || snapshot.status !== 'playing') break;
+      }
+      if (currentUpDown) await page.keyboard.up(currentUpDown);
+
+      const tracks = buildPositionTracks(
+        framePoints.map((boxes) => boxes.map((box) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 }))),
+        40,
+      );
+      const terminatedTracks = tracks.filter((track) => !track.active && track.points.length >= 2);
+      const exitedTrack = terminatedTracks.find((track) => {
+        const lastPoint = track.points[track.points.length - 1];
+        // 좌측 완전 이탈(x<0 근방) 또는 하단 이탈(y>=600 근방) — INV-ITEM-2의 두 소멸 조건.
+        return lastPoint.x <= 30 || lastPoint.y >= 570;
+      });
+      exitedProperly = exitedTrack !== undefined;
+
+      if (sawItem && exitedTrack) {
+        // 그 젤리가 화면에 마지막으로 보였던 프레임과 그 다음(사라진) 프레임 사이의 SCORE를
+        // 비교한다 — 소멸이 아니라 몰래 획득된 것이라면 만피 보너스(+500)나 처치(+10)와
+        // 뒤섞여 이 구간에서 점수가 튀었을 것이다.
+        const lastVisibleIteration = exitedTrack.points[exitedTrack.points.length - 1].frameIndex;
+        scoreAtExitStart = scoresByIteration[lastVisibleIteration] ?? -1;
+        scoreAtExitEnd = scoresByIteration[Math.min(lastVisibleIteration + 1, scoresByIteration.length - 1)] ?? -1;
+        break;
+      }
+    }
+
+    expect(sawItem).toBe(true);
+    expect(exitedProperly).toBe(true);
+    // 소멸은 획득이 아니므로(INV-ITEM-2) SCORE에 부수효과가 없어야 한다 — 만피 보너스
+    // (+500)만큼 튀지 않았는지 확인한다(동시에 벌어질 수 있는 일반 처치(+10 단위)는
+    // 이 시나리오의 관심사가 아니므로 500 미만인지만 확인해 오탐을 피한다).
+    expect(scoreAtExitStart).toBeGreaterThanOrEqual(0);
+    expect(scoreAtExitEnd - scoreAtExitStart).toBeLessThan(500);
   });
 });
