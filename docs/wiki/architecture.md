@@ -152,7 +152,7 @@ Canvas 내부 상태는 DOM 선택자로 직접 관측할 수 없다. `?e2e=1`�
 이전에는 모든 적이 항상 등속 -x(좌측) 직선 이동을 했지만, 이제 각 적은 스폰 직후 정확히 1회만 무작위로 **DASH, OSCILLATE, CIRCLE** 중 하나를 선택하고, 살아있는 동안 절대 재선택하지 않는다. 세 행동의 평균 좌측 접근 속도가 기존보다 느려져 게임플레이의 예측 불가능성이 증가한다.
 
 **3가지 행동의 정의**
-- **DASH:** 4방향(상/하/좌/우, 레벨 11 미만) 또는 8방향(레벨 11 이상)으로 무작위 직선 이동. 선택된 방향 단위벡터에 `BalanceConfig.enemy.speed`를 곱한 속도로 고정된 시간 동안 등속 이동한다.
+- **DASH:** 저레벨(`level < dashOctoDirectionLevel`) 시 정좌(180도)로 고정, 고레벨(`level >= dashOctoDirectionLevel`) 시 좌하(135도)/좌(180도)/좌상(225도) 3방향 중 무작위 선택으로 직선 이동. 선택된 방향 단위벡터에 `BalanceConfig.enemy.speed`를 곱한 속도로 등속 이동한다. (근거: 좌측 성분이 없는 방향으로 선택되면 `INV-ESCAPE-1`의 좌측 이탈 조건을 절대 만족하지 못해 화면 경계에 영구 고착됨)
 - **OSCILLATE:** x축으로 완만한 좌측 드리프트(`BalanceConfig.enemyAi.oscillateDriftSpeed * dt`)를 유지하면서, y축으로 사인파를 그린다. 진동의 진폭과 주기는 밸런스 설정값이며, 각 재선택 시 현재 y좌표를 기준선으로 삼는다.
 - **CIRCLE:** 원형 궤적을 그리면서 중심의 x좌표만 좌측으로 드리프트(`BalanceConfig.enemyAi.circleDriftSpeed * dt`)한다. 중심의 y좌표는 고정되고 회전 방향(시계/반시계)은 무작위다.
 
