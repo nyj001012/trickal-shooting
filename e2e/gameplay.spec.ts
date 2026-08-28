@@ -779,9 +779,12 @@ test.describe('적 AI 이동 패턴: DASH/OSCILLATE/CIRCLE (issue #19)', () => {
       return signs.some((sign) => sign > 0) && signs.some((sign) => sign < 0);
     });
 
-    // OSCILLATE/CIRCLE는 y축이 오르내리고(swing), 재선택으로 DASH 방향이 바뀌면 x 진행
-    // 방향이 뒤집힌다(reversal) — 개정 전 "항상 -x로만 이동"이었다면 어느 쪽도 관측될 수
-    // 없다.
+    // OSCILLATE는 y축 사인파로 오르내리고(swing), CIRCLE은 궤도를 도는 동안 로컬 x 진행
+    // 방향이 주기적으로 뒤집힌다(reversal) — 이 반전은 궤도 운동 자체의 기하학적 성질일
+    // 뿐, 스폰 이후 행동이 다시 선택되는 일이 없는 현재 계약(issue #19 개정,
+    // `Enemy.actionInitialized`로 스폰 시 1회만 선택·고정, invariants.md INV-EAI-1)과는
+    // 무관하다. 개정 전 "항상 -x로만 이동"하는 단순 등속 이동이었다면 어느 쪽도 관측될
+    // 수 없다.
     expect(showsVerticalSwing || showsDirectionReversal).toBe(true);
   });
 
