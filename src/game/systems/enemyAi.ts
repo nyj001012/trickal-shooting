@@ -32,18 +32,15 @@ const FOUR_DIRECTION_TABLE_INDEXES: readonly number[] = [0, 2, 4, 6];
 /** Fixed action-bucket table (INV-EAI-1 step a). */
 const ACTIONS = ['dash', 'oscillate', 'circle'] as const;
 
-export const updateEnemyAi: UpdateEnemyAi = (world, dt, rng): void => {
+export const updateEnemyAi: UpdateEnemyAi = (world, _dt, rng): void => {
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
 
-    enemy.actionRemainSec = Math.max(0, enemy.actionRemainSec - dt);
-    if (enemy.actionRemainSec > 0) continue;
+    if (enemy.actionInitialized) continue;
 
     const actionIndex = Math.min(2, Math.floor(rng() * 3));
     enemy.action = ACTIONS[actionIndex];
-    enemy.actionRemainSec =
-      BALANCE.enemyAi.actionDurationMinSec +
-      rng() * (BALANCE.enemyAi.actionDurationMaxSec - BALANCE.enemyAi.actionDurationMinSec);
+    enemy.actionInitialized = true;
 
     switch (enemy.action) {
       case 'dash': {

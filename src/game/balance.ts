@@ -91,10 +91,6 @@ export const BALANCE = {
     contactDamage: 1,
   },
   enemyAi: {
-    /** sec */
-    actionDurationMinSec: 1.5,
-    /** sec */
-    actionDurationMaxSec: 2.5,
     /** level */
     dashOctoDirectionLevel: 11,
     /** px */

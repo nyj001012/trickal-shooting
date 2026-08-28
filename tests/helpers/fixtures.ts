@@ -61,11 +61,15 @@ export function makeEnemy(overrides: Partial<Enemy> = {}): Enemy {
     height: 28,
     alive: true,
     hp: 1,
-    // Issue #19 (INV-EAI-1..5) — action-based motion. Defaults are plausible but
-    // arbitrary placeholders; tests that care about a specific action's fields override
-    // them explicitly rather than relying on these values.
+    // Issue #19 (INV-EAI-1..5, revised 2026-08-28) — action-based motion, selected
+    // exactly once on spawn and held permanently thereafter (no periodic re-roll).
+    // Defaults are plausible but arbitrary placeholders; tests that care about a
+    // specific action's fields override them explicitly rather than relying on these
+    // values. `actionInitialized: true` by default so a fixture enemy behaves as an
+    // already-settled enemy unless a test explicitly opts into the pre-selection state
+    // via `actionInitialized: false`.
     action: 'dash',
-    actionRemainSec: 0,
+    actionInitialized: true,
     dashVx: -120,
     dashVy: 0,
     oscillateBaseY: 300,

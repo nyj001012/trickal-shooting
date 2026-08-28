@@ -31,6 +31,9 @@ const FOUR_DIRECTION_TABLE_INDEXES = [0, 2, 4, 6] as const;
  * A deterministic `Rng` that returns queued values in order and throws if called more
  * times than values were supplied — lets a test assert "consumes exactly N rng calls"
  * by supplying exactly N values (any extra call is a hard failure, not a silent wrap).
+ * This is the primary tool used below to prove the issue #19 regression fix: once an
+ * enemy's `actionInitialized` flips to `true`, further `updateEnemyAi` calls must supply
+ * an EMPTY rng — any accidental re-roll immediately throws `sequenceRng exhausted`.
  */
 function sequenceRng(values: readonly number[]): Rng {
   let cursor = 0;
@@ -44,11 +47,11 @@ function sequenceRng(values: readonly number[]): Rng {
   };
 }
 
-describe('updateEnemyAi — reselect timing (INV-EAI-1)', () => {
-  it('decrements actionRemainSec by dt and consumes no rng while it remains positive', () => {
+describe('updateEnemyAi — one-time selection timing and permanence (INV-EAI-1, 2026-08-28 revision)', () => {
+  it('does nothing at all for an already-initialized enemy: 0 rng consumed, no field touched', () => {
     const enemy = makeEnemy({
+      actionInitialized: true,
       action: 'dash',
-      actionRemainSec: 1.0,
       dashVx: 77,
       dashVy: -33,
     });
@@ -57,56 +60,103 @@ describe('updateEnemyAi — reselect timing (INV-EAI-1)', () => {
     updateEnemyAi(world, DT, sequenceRng([]));
 
     const updated = world.enemies[0];
-    expect(updated.actionRemainSec).toBeCloseTo(1.0 - DT, 8);
+    expect(updated.actionInitialized).toBe(true);
     expect(updated.action).toBe('dash');
     expect(updated.dashVx).toBe(77);
     expect(updated.dashVy).toBe(-33);
   });
 
-  it('does not touch a dead enemy at all (no decrement, no rng consumption)', () => {
-    const enemy = makeEnemy({ alive: false, actionRemainSec: 1.0 });
+  it('does not touch a dead enemy at all (no selection, no rng consumption) even while uninitialized', () => {
+    const enemy = makeEnemy({ alive: false, actionInitialized: false });
     const world = makeWorld({ enemies: [enemy] });
 
     updateEnemyAi(world, DT, sequenceRng([]));
 
-    expect(world.enemies[0].actionRemainSec).toBe(1.0);
+    expect(world.enemies[0].actionInitialized).toBe(false);
   });
 
-  it('reselects immediately (same call) for a freshly-spawned enemy whose actionRemainSec starts at exactly 0', () => {
-    const enemy = makeEnemy({ actionRemainSec: 0 });
-    const world = makeWorld({ enemies: [enemy] });
-
-    // rng()=0.4 -> actionIndex bucket 1 -> 'oscillate' (consumes no further rng);
-    // the action itself is incidental — this test only asserts a reselection happened.
-    updateEnemyAi(world, DT, sequenceRng([0.4, 0.0]));
-
-    const updated = world.enemies[0];
-    expect(updated.action).toBe('oscillate');
-    expect(updated.actionRemainSec).toBeGreaterThan(0);
-  });
-
-  it('reselects the exact tick actionRemainSec decrements from a positive value down to 0', () => {
-    const enemy = makeEnemy({ actionRemainSec: DT });
+  it('selects a real action immediately (same call) for a freshly-spawned enemy whose actionInitialized starts false', () => {
+    const enemy = makeEnemy({ actionInitialized: false });
     const world = makeWorld({ enemies: [enemy] });
 
     // rng()=0.4 -> actionIndex bucket 1 -> 'oscillate' (consumes no further rng).
-    updateEnemyAi(world, DT, sequenceRng([0.4, 0.0]));
+    updateEnemyAi(world, DT, sequenceRng([0.4]));
 
-    expect(world.enemies[0].actionRemainSec).toBeGreaterThan(0);
+    const updated = world.enemies[0];
+    expect(updated.action).toBe('oscillate');
+    expect(updated.actionInitialized).toBe(true);
   });
 
-  it('rolls the new duration as actionDurationMinSec + rng() * (actionDurationMaxSec - actionDurationMinSec)', () => {
-    const enemy = makeEnemy({ actionRemainSec: 0 });
+  it('flips actionInitialized to true exactly once and never re-selects on any subsequent tick, across many ticks', () => {
+    const enemy = makeEnemy({ actionInitialized: false, x: 500, y: 245 });
     const world = makeWorld({ enemies: [enemy] });
 
-    // rng()=0.4 -> actionIndex bucket 1 -> 'oscillate' (consumes no further rng),
-    // rng()=0.5 -> the duration roll under test.
-    updateEnemyAi(world, DT, sequenceRng([0.4, 0.5]));
+    // Only the values needed for the ONE allowed selection (dash: bucket + direction).
+    updateEnemyAi(world, DT, sequenceRng([0.1, 0.2]));
 
-    const expected =
-      BALANCE.enemyAi.actionDurationMinSec +
-      0.5 * (BALANCE.enemyAi.actionDurationMaxSec - BALANCE.enemyAi.actionDurationMinSec);
-    expect(world.enemies[0].actionRemainSec).toBeCloseTo(expected, 8);
+    const afterFirst = { ...world.enemies[0] };
+    expect(afterFirst.actionInitialized).toBe(true);
+    expect(afterFirst.action).toBe('dash');
+
+    // Regression guard: simulate several more seconds of ticks. Every one of these
+    // calls is handed an EMPTY rng — if the implementation ever re-rolls (the exact bug
+    // this revision fixes), `sequenceRng` throws immediately instead of silently
+    // returning `undefined`/looping.
+    for (let tick = 0; tick < 300; tick += 1) {
+      updateEnemyAi(world, DT, sequenceRng([]));
+    }
+
+    const afterMany = world.enemies[0];
+    expect(afterMany.actionInitialized).toBe(true);
+    expect(afterMany.action).toBe(afterFirst.action);
+    expect(afterMany.dashVx).toBe(afterFirst.dashVx);
+    expect(afterMany.dashVy).toBe(afterFirst.dashVy);
+    expect(afterMany.oscillateBaseY).toBe(afterFirst.oscillateBaseY);
+    expect(afterMany.oscillatePhaseSec).toBe(afterFirst.oscillatePhaseSec);
+    expect(afterMany.circleCenterX).toBe(afterFirst.circleCenterX);
+    expect(afterMany.circleCenterY).toBe(afterFirst.circleCenterY);
+    expect(afterMany.circleAngleRad).toBe(afterFirst.circleAngleRad);
+    expect(afterMany.circleDir).toBe(afterFirst.circleDir);
+  });
+
+  it('holds an OSCILLATE selection permanently across many ticks with zero further rng consumption', () => {
+    const enemy = makeEnemy({ actionInitialized: false, y: 245 });
+    const world = makeWorld({ enemies: [enemy] });
+
+    // OSCILLATE consumes exactly 1 rng call for its entire lifetime.
+    updateEnemyAi(world, DT, sequenceRng([0.5]));
+    const afterFirst = { ...world.enemies[0] };
+    expect(afterFirst.action).toBe('oscillate');
+
+    for (let tick = 0; tick < 300; tick += 1) {
+      updateEnemyAi(world, DT, sequenceRng([]));
+    }
+
+    const afterMany = world.enemies[0];
+    expect(afterMany.action).toBe('oscillate');
+    expect(afterMany.oscillateBaseY).toBe(afterFirst.oscillateBaseY);
+    expect(afterMany.oscillatePhaseSec).toBe(afterFirst.oscillatePhaseSec);
+  });
+
+  it('holds a CIRCLE selection permanently across many ticks with zero further rng consumption', () => {
+    const enemy = makeEnemy({ actionInitialized: false, x: 300, y: 200, width: 28, height: 28 });
+    const world = makeWorld({ enemies: [enemy] });
+
+    // CIRCLE consumes exactly 2 rng calls (bucket + circleDir) for its entire lifetime.
+    updateEnemyAi(world, DT, sequenceRng([0.8, 0.1]));
+    const afterFirst = { ...world.enemies[0] };
+    expect(afterFirst.action).toBe('circle');
+
+    for (let tick = 0; tick < 300; tick += 1) {
+      updateEnemyAi(world, DT, sequenceRng([]));
+    }
+
+    const afterMany = world.enemies[0];
+    expect(afterMany.action).toBe('circle');
+    expect(afterMany.circleCenterX).toBe(afterFirst.circleCenterX);
+    expect(afterMany.circleCenterY).toBe(afterFirst.circleCenterY);
+    expect(afterMany.circleAngleRad).toBe(afterFirst.circleAngleRad);
+    expect(afterMany.circleDir).toBe(afterFirst.circleDir);
   });
 });
 
@@ -121,12 +171,12 @@ describe('updateEnemyAi — action selection buckets (actionIndex = Math.min(2, 
     { rngValue: 0.999999, expected: 'circle' },
     { rngValue: 1, expected: 'circle' }, // clamp edge: floor(3) = 3 -> min(2, 3) = 2
   ] as const)('selects $expected for actionIndex rng()=$rngValue', ({ rngValue, expected }) => {
-    const enemy = makeEnemy({ actionRemainSec: 0 });
+    const enemy = makeEnemy({ actionInitialized: false });
     const world = makeWorld({ enemies: [enemy] });
 
-    // Supply enough trailing values for whichever action gets picked (duration + an
-    // optional 3rd draw for dash/circle); unused trailing values are never consumed.
-    updateEnemyAi(world, DT, sequenceRng([rngValue, 0.5, 0.5]));
+    // Supply one trailing value in case the picked action needs a second draw
+    // (dash/circle); unused trailing values are never consumed by 'oscillate'.
+    updateEnemyAi(world, DT, sequenceRng([rngValue, 0.5]));
 
     expect(world.enemies[0].action).toBe(expected);
   });
@@ -134,14 +184,13 @@ describe('updateEnemyAi — action selection buckets (actionIndex = Math.min(2, 
 
 describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
   const DASH_BUCKET = 0.1; // actionIndex 0 -> 'dash'
-  const DURATION_ROLL = 0.5; // irrelevant to direction, kept constant across this block
 
   it.each(
     FOUR_DIRECTION_TABLE_INDEXES.map((tableIndex, index4) => ({ index4, tableIndex })),
   )(
     'below dashOctoDirectionLevel, maps 4-direction index $index4 through [0,2,4,6] to table index $tableIndex',
     ({ index4, tableIndex }) => {
-      const enemy = makeEnemy({ actionRemainSec: 0 });
+      const enemy = makeEnemy({ actionInitialized: false });
       const world = makeWorld({
         enemies: [enemy],
         session: {
@@ -155,7 +204,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
       });
       const dirRng = (index4 + 0.5) / 4;
 
-      updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, DURATION_ROLL, dirRng]));
+      updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, dirRng]));
 
       const updated = world.enemies[0];
       expect(updated.action).toBe('dash');
@@ -166,7 +215,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
   );
 
   it('clamps the 4-direction index to 3 for the theoretical rng() === 1 edge case', () => {
-    const enemy = makeEnemy({ actionRemainSec: 0 });
+    const enemy = makeEnemy({ actionInitialized: false });
     const world = makeWorld({
       enemies: [enemy],
       session: {
@@ -179,7 +228,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
       },
     });
 
-    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, DURATION_ROLL, 1]));
+    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, 1]));
 
     const updated = world.enemies[0];
     const unit = DIRECTION_TABLE[FOUR_DIRECTION_TABLE_INDEXES[3]];
@@ -190,7 +239,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
   it.each(DIRECTION_TABLE.map((dir, index) => ({ ...dir, index })))(
     'at or above dashOctoDirectionLevel, uses the full 8-direction table directly at index $index',
     ({ ux, uy, index }) => {
-      const enemy = makeEnemy({ actionRemainSec: 0 });
+      const enemy = makeEnemy({ actionInitialized: false });
       const world = makeWorld({
         enemies: [enemy],
         session: {
@@ -204,7 +253,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
       });
       const dirRng = (index + 0.5) / 8;
 
-      updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, DURATION_ROLL, dirRng]));
+      updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, dirRng]));
 
       const updated = world.enemies[0];
       expect(updated.dashVx).toBeCloseTo(ux * BALANCE.enemy.speed, 8);
@@ -213,7 +262,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
   );
 
   it('clamps the 8-direction index to 7 for the theoretical rng() === 1 edge case', () => {
-    const enemy = makeEnemy({ actionRemainSec: 0 });
+    const enemy = makeEnemy({ actionInitialized: false });
     const world = makeWorld({
       enemies: [enemy],
       session: {
@@ -226,7 +275,7 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
       },
     });
 
-    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, DURATION_ROLL, 1]));
+    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, 1]));
 
     const updated = world.enemies[0];
     const last = DIRECTION_TABLE[7];
@@ -234,18 +283,20 @@ describe('updateEnemyAi — DASH direction selection (INV-EAI-2)', () => {
     expect(updated.dashVy).toBeCloseTo(last.uy * BALANCE.enemy.speed, 8);
   });
 
-  it('holds dashVx/dashVy constant while actionRemainSec has not yet run out again', () => {
-    const enemy = makeEnemy({ actionRemainSec: 0 });
+  it('holds dashVx/dashVy constant forever once selected — never re-derives them, even after a level change', () => {
+    const enemy = makeEnemy({ actionInitialized: false });
     const world = makeWorld({
       enemies: [enemy],
       session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
     });
 
-    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, DURATION_ROLL, 0]));
+    updateEnemyAi(world, DT, sequenceRng([DASH_BUCKET, 0]));
     const dashVxAfterSelect = world.enemies[0].dashVx;
     const dashVyAfterSelect = world.enemies[0].dashVy;
 
-    // Still mid-duration: must consume zero rng and leave dashVx/dashVy untouched.
+    // Simulate a level-up after the fact — must not trigger any re-roll.
+    world.session.level = BALANCE.enemyAi.dashOctoDirectionLevel + 5;
+
     updateEnemyAi(world, DT, sequenceRng([]));
 
     expect(world.enemies[0].action).toBe('dash');
@@ -258,14 +309,14 @@ describe('updateEnemyAi — OSCILLATE selection (INV-EAI-3)', () => {
   it('captures the current y as oscillateBaseY and resets oscillatePhaseSec to 0, consuming no extra rng', () => {
     const enemy = makeEnemy({
       y: 245,
-      actionRemainSec: 0,
-      // stale leftover from a previous OSCILLATE run — must be overwritten, not reused.
+      actionInitialized: false,
+      // stale leftover from a previous fixture default — must be overwritten, not reused.
       oscillatePhaseSec: 999,
     });
     const world = makeWorld({ enemies: [enemy] });
 
-    // rng()=0.5 -> actionIndex bucket 1 -> 'oscillate'; rng()=0.2 -> duration roll only.
-    updateEnemyAi(world, DT, sequenceRng([0.5, 0.2]));
+    // rng()=0.5 -> actionIndex bucket 1 -> 'oscillate'; no further rng consumed.
+    updateEnemyAi(world, DT, sequenceRng([0.5]));
 
     const updated = world.enemies[0];
     expect(updated.action).toBe('oscillate');
@@ -276,11 +327,17 @@ describe('updateEnemyAi — OSCILLATE selection (INV-EAI-3)', () => {
 
 describe('updateEnemyAi — CIRCLE selection (INV-EAI-4)', () => {
   it('resets circleAngleRad to 0 and places the orbit center so the current position lands exactly on angle 0 (no jump)', () => {
-    const enemy = makeEnemy({ x: 300, y: 200, width: 28, height: 28, actionRemainSec: 0 });
+    const enemy = makeEnemy({
+      x: 300,
+      y: 200,
+      width: 28,
+      height: 28,
+      actionInitialized: false,
+    });
     const world = makeWorld({ enemies: [enemy] });
 
-    // rng()=0.8 -> actionIndex bucket 2 -> 'circle'; 0.3 -> duration; 0.1 -> circleDir.
-    updateEnemyAi(world, DT, sequenceRng([0.8, 0.3, 0.1]));
+    // rng()=0.8 -> actionIndex bucket 2 -> 'circle'; 0.1 -> circleDir.
+    updateEnemyAi(world, DT, sequenceRng([0.8, 0.1]));
 
     const updated = world.enemies[0];
     expect(updated.action).toBe('circle');
@@ -309,93 +366,94 @@ describe('updateEnemyAi — CIRCLE selection (INV-EAI-4)', () => {
   ] as const)(
     'sets circleDir = $expectedDir for rng()=$rngValue (< 0.5 => 1, else -1)',
     ({ rngValue, expectedDir }) => {
-      const enemy = makeEnemy({ actionRemainSec: 0 });
+      const enemy = makeEnemy({ actionInitialized: false });
       const world = makeWorld({ enemies: [enemy] });
 
-      updateEnemyAi(world, DT, sequenceRng([0.8, 0.3, rngValue]));
+      updateEnemyAi(world, DT, sequenceRng([0.8, rngValue]));
 
       expect(world.enemies[0].circleDir).toBe(expectedDir);
     },
   );
 
-  it('recenters (no jump) again on a later reselection from a different position', () => {
+  it('never recenters again on a later tick even from a moved position (permanent center/dir, no reselection)', () => {
     const enemy = makeEnemy({
       x: 700,
       y: 50,
       width: 28,
       height: 28,
       action: 'circle',
-      actionRemainSec: 0,
+      actionInitialized: true,
       circleCenterX: 999,
       circleCenterY: 999,
       circleAngleRad: 2,
+      circleDir: -1,
     });
     const world = makeWorld({ enemies: [enemy] });
 
-    updateEnemyAi(world, DT, sequenceRng([0.8, 0.3, 0.9]));
+    // Already initialized: must consume 0 rng and leave every circle field untouched,
+    // regardless of how far the entity has since moved from its original spawn point.
+    updateEnemyAi(world, DT, sequenceRng([]));
 
     const updated = world.enemies[0];
-    const centerX0 = 700 + 28 / 2;
-    const centerY0 = 50 + 28 / 2;
-    expect(updated.circleCenterX).toBeCloseTo(centerX0 - BALANCE.enemyAi.circleRadiusPx, 8);
-    expect(updated.circleCenterY).toBeCloseTo(centerY0, 8);
-    expect(updated.circleAngleRad).toBe(0);
+    expect(updated.circleCenterX).toBe(999);
+    expect(updated.circleCenterY).toBe(999);
+    expect(updated.circleAngleRad).toBe(2);
     expect(updated.circleDir).toBe(-1);
   });
 });
 
-describe('updateEnemyAi — multiple enemies, array order, rng consumed only by reselecting enemies', () => {
-  it('consumes 0 rng for a not-yet-due enemy, 2 for an OSCILLATE reselect, and 3 for a DASH reselect, in world.enemies order', () => {
-    const notDue = makeEnemy({ id: 1, actionRemainSec: 5 });
-    const oscillateDue = makeEnemy({ id: 2, actionRemainSec: 0 });
-    const dashDue = makeEnemy({ id: 3, actionRemainSec: 0 });
-    const notDueActionBefore = notDue.action;
-    const notDueRemainBefore = notDue.actionRemainSec;
+describe('updateEnemyAi — multiple enemies, array order, rng consumed only by uninitialized enemies', () => {
+  it('consumes 0 rng for an already-initialized enemy, 1 for an OSCILLATE first-selection, and 2 for a DASH first-selection, in world.enemies order', () => {
+    const alreadyInitialized = makeEnemy({ id: 1, actionInitialized: true, action: 'dash' });
+    const oscillatePending = makeEnemy({ id: 2, actionInitialized: false });
+    const dashPending = makeEnemy({ id: 3, actionInitialized: false });
     const world = makeWorld({
-      enemies: [notDue, oscillateDue, dashDue],
+      enemies: [alreadyInitialized, oscillatePending, dashPending],
       session: { hp: 3, maxHp: 3, mana: 0, score: 0, level: 1, status: 'playing' },
     });
 
-    // oscillateDue consumes [0.4 (bucket -> oscillate), 0.5 (duration)].
-    // dashDue consumes [0.1 (bucket -> dash), 0.5 (duration), 0.2 (direction)].
-    updateEnemyAi(world, DT, sequenceRng([0.4, 0.5, 0.1, 0.5, 0.2]));
+    // oscillatePending consumes [0.4 (bucket -> oscillate)].
+    // dashPending consumes [0.1 (bucket -> dash), 0.2 (direction)].
+    updateEnemyAi(world, DT, sequenceRng([0.4, 0.1, 0.2]));
 
-    expect(world.enemies[0].action).toBe(notDueActionBefore);
-    expect(world.enemies[0].actionRemainSec).toBeCloseTo(notDueRemainBefore - DT, 8);
+    expect(world.enemies[0].action).toBe('dash');
+    expect(world.enemies[0].actionInitialized).toBe(true);
     expect(world.enemies[1].action).toBe('oscillate');
+    expect(world.enemies[1].actionInitialized).toBe(true);
     expect(world.enemies[2].action).toBe('dash');
+    expect(world.enemies[2].actionInitialized).toBe(true);
   });
 
-  it('skips a dead enemy entirely when consuming rng for its still-alive neighbors', () => {
-    const dead = makeEnemy({ id: 1, alive: false, actionRemainSec: 0 });
-    const alive = makeEnemy({ id: 2, actionRemainSec: 0 });
+  it('skips a dead enemy entirely when consuming rng for its still-uninitialized-but-alive neighbors', () => {
+    const dead = makeEnemy({ id: 1, alive: false, actionInitialized: false });
+    const alive = makeEnemy({ id: 2, actionInitialized: false });
     const world = makeWorld({ enemies: [dead, alive] });
 
-    updateEnemyAi(world, DT, sequenceRng([0.4, 0.5]));
+    updateEnemyAi(world, DT, sequenceRng([0.4]));
 
     expect(world.enemies[1].action).toBe('oscillate');
   });
 });
 
 describe('updateEnemyAi — determinism', () => {
-  it('reproduces the identical action-selection sequence across many reselection cycles for the same seed, and diverges for a different seed', () => {
-    function run(seed: number): string[] {
-      const enemy = makeEnemy({ actionRemainSec: 0 });
+  it('reproduces the identical one-time action selection for the same seed, and diverges for a different seed', () => {
+    function run(seed: number): string {
+      const enemy = makeEnemy({ actionInitialized: false });
       const world = makeWorld({ enemies: [enemy] });
       const rng = createRng(seed);
-      const actions: string[] = [];
+      // The first call performs the only selection this enemy will ever get; every
+      // subsequent call in this enemy's life must be a permanence no-op.
       for (let tick = 0; tick < 500; tick += 1) {
         updateEnemyAi(world, DT, rng);
-        actions.push(world.enemies[0].action);
       }
-      return actions;
+      return world.enemies[0].action;
     }
 
     const a = run(11);
     const b = run(11);
     const c = run(12);
 
-    expect(a).toEqual(b);
-    expect(a).not.toEqual(c);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
   });
 });

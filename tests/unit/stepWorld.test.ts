@@ -114,7 +114,7 @@ describe('stepWorld — automatic player fire (D-2)', () => {
 });
 
 describe('stepWorld — updateEnemyAi assigns a real action to a freshly-spawned enemy the same tick it spawns (issue #19, INV-EAI-1)', () => {
-  it('spawns an enemy with a positive actionRemainSec and a valid action after one stepWorld tick', () => {
+  it('spawns an enemy with actionInitialized flipped to true and a valid action after one stepWorld tick', () => {
     const world = makeWorld({
       spawner: { intervalRemainSec: 0, currentIntervalSec: 1.2 },
     });
@@ -124,7 +124,7 @@ describe('stepWorld — updateEnemyAi assigns a real action to a freshly-spawned
     expect(world.enemies).toHaveLength(1);
     const spawned = world.enemies[0];
     expect(['dash', 'oscillate', 'circle']).toContain(spawned.action);
-    expect(spawned.actionRemainSec).toBeGreaterThan(0);
+    expect(spawned.actionInitialized).toBe(true);
   });
 
   it('leaves the freshly-spawned enemy at exactly x = bounds.width (updateEnemyAi never writes x/y, and applyMovement already ran earlier in the same tick, before spawnTick)', () => {
