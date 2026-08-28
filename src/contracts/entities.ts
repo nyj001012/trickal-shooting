@@ -238,17 +238,22 @@ export interface EnemyProjectile extends EntityBase {
 /**
  * A healing item ("회복 젤리", issue #21) that a dying enemy may drop with probability
  * `BalanceConfig.healingItem.dropChance` (rolled once per projectile kill by `combat.ts`,
- * never for contact-kills — INV-ITEM-1). It drifts left and falls with fixed velocity, is
- * never boundary-clamped on any edge, and despawns on exiting the left or bottom edge
- * (INV-ITEM-2). On player pickup it heals HP, or grants bonus score at full HP
- * (INV-ITEM-3).
+ * never for contact-kills — INV-ITEM-1). It is permanently fixed at its spawn position —
+ * no movement logic is ever applied to it (2026-08-28 revision: the original left/down
+ * drift was removed per user feedback). It despawns purely on a lifetime timer
+ * (INV-ITEM-2). On player pickup, before the timer expires, it heals HP or grants bonus
+ * score at full HP, and is removed immediately (INV-ITEM-3, which takes priority over
+ * timer expiry).
  */
 export interface HealingItem extends EntityBase {
   readonly kind: 'healingItem';
-  /** px/sec; 항상 음수(좌측 드리프트), 스폰 시 고정, 이후 불변. */
-  vx: number;
-  /** px/sec; 항상 양수(하강), 스폰 시 고정, 이후 불변. */
-  vy: number;
+  /**
+   * sec; counts down from `BalanceConfig.healingItem.lifetimeSec` by `dt` every tick.
+   * Despawns (`alive = false`) once this reaches 0. Independent of, and evaluated before,
+   * any pickup — but a pickup in the same tick removes the item regardless of the
+   * remaining value (INV-ITEM-3 takes priority). `x`/`y` never change after spawn.
+   */
+  lifetimeRemainSec: number;
 }
 
 /**

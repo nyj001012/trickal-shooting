@@ -175,10 +175,14 @@ export interface HealingItemBalance {
   readonly width: number;
   /** px; AABB height. */
   readonly height: number;
-  /** px/sec; always negative — constant leftward drift speed, fixed at spawn (INV-ITEM-2). */
-  readonly driftVx: number;
-  /** px/sec; always positive — constant downward fall speed, fixed at spawn (INV-ITEM-2). */
-  readonly fallVy: number;
+  /** sec; total lifetime before automatic despawn if never picked up (INV-ITEM-2). */
+  readonly lifetimeSec: number;
+  /**
+   * sec; once `lifetimeRemainSec` drops to this value or below, the item blinks
+   * (same 100ms-interval flash cadence as the player's invulnerability visual) until it
+   * despawns (INV-ITEM-2, render hint only — no behavioral effect).
+   */
+  readonly blinkRemainSec: number;
   /** count; HP restored to the player on pickup, capped at `player.maxHp` (INV-ITEM-3). */
   readonly healAmount: number;
   /** count; score granted instead of HP when picked up while already at `player.maxHp` (INV-ITEM-3). */

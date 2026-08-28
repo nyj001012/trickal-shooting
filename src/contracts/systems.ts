@@ -162,13 +162,11 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *      the playfield through ANY of the 4 edges — `x + width < 0 || x > bounds.width ||
  *      y + height < 0 || y > bounds.height` — or at lifetime zero (INV-EPROJ-3). This is
  *      unlike regular projectiles, which only ever check the right edge.
- *   6. Healing items (issue #21): move every alive item by `x += vx * dt; y += vy * dt`
- *      using its fixed `vx`/`vy` (never re-derived or steered — set once at creation by
- *      `combat.ts` and never touched again). No boundary clamp is applied on ANY edge
- *      (unlike every other entity kind). Expire it (`alive = false`) the tick it exits
- *      through the left edge (`x + width < 0`) OR the bottom edge (`y > bounds.height`) —
- *      the top and right edges are never checked, and there is no lifetime timer for this
- *      kind (INV-ITEM-2).
+ *   6. Healing items (issue #21, 2026-08-28 revision — replaces the original left/down
+ *      drift): apply NO movement at all — `x`/`y` never change after spawn. Instead,
+ *      decrement `lifetimeRemainSec` by `dt` (floored at 0 via `Math.max(0, ...)`) for
+ *      every alive item, and expire it (`alive = false`) once it reaches 0. There is no
+ *      boundary check of any kind for this entity kind (INV-ITEM-2).
  * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].y,
  *          world.enemies[].alive, world.enemies[].oscillatePhaseSec,
  *          world.enemies[].circleAngleRad, world.enemies[].circleCenterX,
@@ -179,7 +177,7 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *          world.skillProjectiles[].lifetimeRemainSec, world.skillProjectiles[].alive,
  *          world.enemyProjectiles[].x, world.enemyProjectiles[].y,
  *          world.enemyProjectiles[].lifetimeRemainSec, world.enemyProjectiles[].alive,
- *          world.healingItems[].x, world.healingItems[].y, world.healingItems[].alive
+ *          world.healingItems[].lifetimeRemainSec, world.healingItems[].alive
  * @module @/game/systems/movement
  */
 export type ApplyMovement = (world: GameWorld, input: Readonly<InputState>, dt: number) => void;
@@ -368,8 +366,8 @@ export type UpdateEnemyAi = (world: GameWorld, dt: number, rng: Rng) => void;
  * exactly once: if `rng() < BalanceConfig.healingItem.dropChance`, create one
  * `HealingItem` (`id = world.nextEntityId++`, size from
  * `BalanceConfig.healingItem.width`/`height` centered on the dead enemy's AABB center,
- * `vx = BalanceConfig.healingItem.driftVx`, `vy = BalanceConfig.healingItem.fallVy`) and
- * push it onto `world.healingItems` (INV-ITEM-1); (3) apply skill-projectile hits
+ * fixed permanently at that position, `lifetimeRemainSec = BalanceConfig.healingItem.lifetimeSec`)
+ * and push it onto `world.healingItems` (INV-ITEM-1); (3) apply skill-projectile hits
  * independently, granting score but no mana when a live enemy dies, applying the
  * IDENTICAL per-death drop-chance roll described in step 2 (one `rng()` call per enemy
  * that dies in this step, same formula, same push target — INV-ITEM-1; the two loops run

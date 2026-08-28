@@ -319,8 +319,7 @@ if (rng() < BalanceConfig.healingItem.dropChance) {
     height: BalanceConfig.healingItem.height,
     x: centerX - BalanceConfig.healingItem.width / 2,
     y: centerY - BalanceConfig.healingItem.height / 2,
-    vx: BalanceConfig.healingItem.driftVx,
-    vy: BalanceConfig.healingItem.fallVy,
+    lifetimeRemainSec: BalanceConfig.healingItem.lifetimeSec,
   })
 }
 ```
@@ -330,23 +329,25 @@ if (rng() < BalanceConfig.healingItem.dropChance) {
 - **`fullHpBonusScore`/`healAmount`와 무관:** 드롭 판정 자체는 플레이어의 현재 HP나 MANA와 무관하게 항상 수행된다. HP 포화 여부는 오직 획득(pickup, INV-ITEM-3) 시점에만 영향을 준다.
 - 테스트 관점: 고정 시드에서 정확히 1개의 적이 일반탄에 맞아 죽는 시나리오를 반복 실행하면, `rng` 소비 횟수가 정확히 1이고, `dropChance` 임계값을 오가는 시드 조작으로 `world.healingItems.length`가 0 또는 1이 되는 두 경우를 모두 재현할 수 있어야 한다.
 
-### INV-ITEM-2 — 회복 젤리 이동·소멸: 좌측 드리프트 + 하강, 클램프 없음, 좌/하단 이탈 시 소멸 (issue #21)
+### INV-ITEM-2 — 회복 젤리 위치 고정 + 수명 타이머 소멸 (issue #21, 2026-08-28 개정 — 좌하 드리프트 폐기)
 
-`applyMovement`는 매 틱 모든 살아 있는 `HealingItem`에 대해 다음을 수행한다(적용 순서: 위치 적분 → 이탈 검사).
+> **개정 배경:** 원래는 좌측 드리프트 + 하강으로 이동하다 화면 밖(좌/하단)으로 나가면 소멸했으나, 사용자 피드백에 따라 이동 로직을 전면 제거하고 "스폰 위치 고정 + 4초 수명 타이머(마지막 1초 깜빡임)" 방식으로 교체한다.
+
+`applyMovement`는 매 틱 모든 살아 있는 `HealingItem`에 대해 다음을 수행한다(위치 적분 없음 — 오직 수명 타이머 감소와 만료 검사뿐).
 
 ```
-item.x += item.vx * dt   // vx는 항상 음수(좌측 드리프트), 스폰 시 고정, 재조향 없음
-item.y += item.vy * dt   // vy는 항상 양수(하강), 스폰 시 고정, 재조향 없음
-if (item.x + item.width < 0 || item.y > world.bounds.height) {
+item.lifetimeRemainSec = Math.max(0, item.lifetimeRemainSec - dt)
+if (item.lifetimeRemainSec <= 0) {
   item.alive = false
 }
 ```
 
-- **클램프가 전혀 없다.** 다른 모든 엔티티(플레이어 INV-MOVE-2, 적 INV-EAI-5, 각 투사체)와 달리 `HealingItem`은 상/하/좌/우 어느 경계에도 클램프되지 않는다 — 화면 밖으로 자유롭게 나갈 수 있다.
-- **소멸 조건은 좌측과 하단 두 곳뿐이다.** 좌측 완전 이탈(`x + width < 0`, 적의 좌측 이탈 규칙과 동일한 형태) 또는 하단 이탈(`y > world.bounds.height`, 상단 경계는 검사하지 않음 — 항상 아래로만 떨어지므로 상단 이탈은 발생하지 않는다)에서 소멸한다. 우측 이탈 검사는 없다 — `vx`가 항상 음수이므로 우측으로는 애초에 나가지 않는다.
-- **lifetime 타이머가 없다.** 다른 투사체류(`lifetimeRemainSec`)와 달리 `HealingItem`에는 자동 만료 안전망 필드 자체가 없다 — 오직 좌/하단 이탈만이 소멸 조건이다.
-- 세션 부수효과 없음: 좌/하단 이탈로 소멸하는 젤리는 획득이 아니므로 HP/MANA/SCORE를 전혀 변경하지 않는다(INV-ITEM-3의 획득 경로와 무관).
-- 테스트 관점: 고정 `vx`/`vy`로 여러 틱을 진행했을 때 클램프 없이 `x`/`y`가 화면 경계를 자유롭게 넘어서는지, 좌측 이탈과 하단 이탈 각각 독립적으로 `alive = false`를 유발하는지, 상단·우측으로는 애초에 이동하지 않으므로 해당 경계 이탈 케이스가 존재하지 않는지 확인한다.
+- **이동 로직이 전혀 없다.** `x`/`y`는 `combat.ts`가 스폰 시 결정한 값에서 다시는 변하지 않는다 — 클램프도, 드리프트도, 재조향도 없다. 다른 모든 엔티티(플레이어 INV-MOVE-2, 적 INV-EAI-5, 각 투사체)와 달리 이 엔티티는 애초에 이동 시스템의 적용 대상이 아니다.
+- **소멸 조건은 오직 수명 타이머뿐이다.** `lifetimeRemainSec`은 `BalanceConfig.healingItem.lifetimeSec`(권장 `4.0`)에서 시작해 매 틱 `dt`만큼 감소하고, `0` 이하가 되면(`Math.max(0, ...)`로 음수 방지) `alive = false`가 된다. 화면 경계(좌/우/상/하) 이탈 관련 소멸 조건은 존재하지 않는다 — 애초에 이동하지 않으므로 경계를 벗어날 수 없다.
+- **획득이 수명 만료보다 우선한다.** 같은 틱에 `lifetimeRemainSec`이 0에 도달하는 것과 플레이어 픽업이 동시에 일어날 수 있는데, `stepWorld`의 고정 실행 순서(§1 — `applyMovement`가 `detectCollisions`/`applyCombat`보다 먼저 실행)상 이 시스템이 먼저 `alive = false`로 만료시키면, 같은 틱의 `detectCollisions`는 그 아이템을 이미 죽은 것으로 보고 `playerItemPickups`에 포함하지 않는다 — 즉 만료 시점이 정확히 겹치는 프레임에서는 만료가 우선한다(만료 이전 프레임까지는 항상 INV-ITEM-3의 획득이 정상 적용된다).
+- **렌더 힌트(구현 담당자 안내용, 상세 렌더 구현은 계약 범위 밖):** `lifetimeRemainSec <= BalanceConfig.healingItem.blinkRemainSec`(권장 `1.0`)인 동안은 플레이어 무적 시간과 동일한 100ms 간격 점멸 연출을 적용한다(`render/drawScene.ts`의 `HIT_FLASH_INTERVAL_SEC` 재사용 또는 동일 값).
+- 세션 부수효과 없음: 수명 만료로 소멸하는 젤리는 획득이 아니므로 HP/MANA/SCORE를 전혀 변경하지 않는다(INV-ITEM-3의 획득 경로와 무관).
+- 테스트 관점: (a) 여러 틱을 진행해도 `x`/`y`가 스폰 시점 값과 정확히 동일하게 유지되는지, (b) `lifetimeRemainSec`이 매 틱 정확히 `dt`만큼 감소하고 `0` 미만으로 내려가지 않는지, (c) `lifetimeSec`초 경과 시점에 정확히 `alive === false`가 되는지, (d) 수명 만료 이전에 픽업이 발생하면 `alive === false`가 되면서도 HP/SCORE 보상이 함께 적용되는지 확인한다.
 
 ### INV-ITEM-3 — 회복 젤리 획득: HP 회복 또는 만피 보너스 점수, rng 미소비 (issue #21)
 
@@ -454,8 +455,8 @@ for (const { item } of collisions.playerItemPickups) {
 | `healingItem.dropChance` | `0.1` | 0-1 무차원, 투사체 처치당 드롭 확률 10% (issue #21, INV-ITEM-1) |
 | `healingItem.width` | `20` | px |
 | `healingItem.height` | `20` | px |
-| `healingItem.driftVx` | `-90` | px/sec, 좌측 드리프트 (참고 코드 프레임당 -1.5px * 60fps 환산) |
-| `healingItem.fallVy` | `120` | px/sec, 하강 (참고 코드 프레임당 2px * 60fps 환산) |
+| `healingItem.lifetimeSec` | `4.0` | sec, 총 수명 — 만료 시 소멸 (2026-08-28 개정, INV-ITEM-2) |
+| `healingItem.blinkRemainSec` | `1.0` | sec, 이 값 이하로 남으면 100ms 간격 점멸 연출 시작 (렌더 힌트, INV-ITEM-2) |
 | `healingItem.healAmount` | `1` | HP |
 | `healingItem.fullHpBonusScore` | `500` | 점, 만피 상태에서 획득 시 HP 대신 지급 |
 | `spawn.initialIntervalSec` | `1.2` | sec |
@@ -521,3 +522,15 @@ for (const { item } of collisions.playerItemPickups) {
 - **API 변경 주의(공개 인터페이스):** `ApplyCombat`은 이번 개정으로 인자가 3개에서 4개로 늘었다. 이 함수를 직접 호출하는 모든 지점(`stepWorld.ts`, 관련 테스트)은 네 번째 `rng` 인자를 전달하도록 갱신해야 한다.
 - **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
 - **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `HealingItem` 판별 유니온 추가, `GameWorld`/`CollisionResult`/`BalanceConfig` 확장, `ApplyCombat` 시그니처 변경(3-arg → 4-arg) 반영 후 독립 컴파일 통과.
+
+### 5.6 issue #21 — 회복 젤리 이동(좌하 드리프트) 제거, 고정 위치 + 4초 수명 타이머로 개정 (2026-08-28)
+
+- **배경:** 사용자 피드백. 회복 젤리가 좌측+하단으로 드리프트 이동하다 화면 밖으로 나가면 소멸하는 기존 동작(INV-ITEM-2)을 폐기하고, 적이 처치된 자리에 완전히 고정된 채로 있다가 생성 4초 후(마지막 1초는 플레이어 무적 시간과 동일한 100ms 간격 깜빡임 연출) 소멸하도록 변경한다. 이 4초 동안 플레이어가 접촉하면 기존 INV-ITEM-3 규칙대로 즉시 획득 처리되며, 이는 수명 만료보다 우선한다.
+- **변경 파일:**
+  - `src/contracts/entities.ts` — `HealingItem`에서 `vx`/`vy` 필드 제거, `lifetimeRemainSec: number`(sec, 매 틱 `dt`만큼 감소, `RegularProjectile.lifetimeRemainSec`와 동일 패턴) 추가. JSDoc을 고정 위치·수명 타이머 규칙으로 갱신.
+  - `src/contracts/balance.ts` — `HealingItemBalance`에서 `driftVx`/`fallVy` 필드 제거, `lifetimeSec: number`(총 수명, 권장 `4.0`)와 `blinkRemainSec: number`(이 값 이하로 남으면 깜빡임 시작, 권장 `1.0`) 추가. `dropChance`/`width`/`height`/`healAmount`/`fullHpBonusScore`는 변경 없음.
+  - `src/contracts/systems.ts` — `ApplyMovement` JSDoc의 healingItem 6번째 책임 서술을 "매 틱 `lifetimeRemainSec`을 `dt`만큼 감소(`Math.max(0, ...)`)시키고 `0` 이하가 되면 `alive = false`로 소멸, 위치는 스폰 시점 그대로 절대 변하지 않음(이동 로직 없음)"으로 전면 교체, `@mutates` 목록에서 `world.healingItems[].x`/`world.healingItems[].y`를 `world.healingItems[].lifetimeRemainSec`으로 대체. `ApplyCombat` JSDoc의 젤리 생성 서술에서 `vx`/`vy` 초기화를 `lifetimeRemainSec = BalanceConfig.healingItem.lifetimeSec` 초기화로 교체.
+  - `.claude/_workspace/03_contracts/invariants.md` — `INV-ITEM-1` 생성 코드에서 `vx`/`vy` 초기화를 `lifetimeRemainSec` 초기화로 교체, `INV-ITEM-2`를 전면 재작성(고정 위치 + 수명 타이머 소멸, 렌더 힌트 1줄, 획득이 만료보다 우선한다는 순서 규칙 추가), §4 밸런스 표에서 `healingItem.driftVx`/`fallVy` 행을 삭제하고 `healingItem.lifetimeSec`/`blinkRemainSec` 행 추가.
+- **API 변경 없음:** `ApplyMovement`/`ApplyCombat`의 함수 시그니처(인자 개수·타입)는 변경되지 않는다. 이번 개정은 엔티티 필드 구성과 JSDoc 서술만 바뀐다.
+- **명령:** `./node_modules/.bin/tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --moduleResolution bundler --module ESNext --skipLibCheck src/contracts/index.ts`
+- **결과:** 종료 코드 `0`, 출력 없음(에러 0건). `HealingItem.vx`/`vy` 제거 및 `lifetimeRemainSec` 추가, `HealingItemBalance.driftVx`/`fallVy` 제거 및 `lifetimeSec`/`blinkRemainSec` 추가 반영 후 독립 컴파일 통과.
