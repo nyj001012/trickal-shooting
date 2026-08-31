@@ -1114,11 +1114,15 @@ test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
   // 피격) 중 하나이며, 어느 쪽이든 INV-ITEM-3(젤리 획득 시 회복/보너스)의 전제 조건인
   // "hp < maxHp" 상태를 동일하게 만족한다.
 
-  test('적 처치로 드롭된 회복 젤리가 하늘색 사각형으로 렌더링되고 좌측+하단으로 이동한다', async ({
+  test('적 처치로 드롭된 회복 젤리가 하늘색 사각형으로 렌더링되고 생성된 위치에 고정된다', async ({
     page,
   }) => {
     test.setTimeout(60_000);
 
+    // INV-ITEM-2(전면 개정): 젤리는 더 이상 이동하지 않고 스폰 좌표에 영구 고정된다.
+    // 따라서 이 시나리오는 의도적으로 젤리를 쫓지 않는다(seek 전환 없이 근접 적 회피만
+    // 수행) — 자동으로 주워버리면 "이동하지 않는다"를 여러 프레임에 걸쳐 표본화하기 전에
+    // 젤리가 사라진다. 방치된 채로도 INV-ITEM-2가 성립하는지만 확인한다.
     const candidateSeeds = [3, 2, 1];
     let sampledPoints: { x: number; y: number }[] = [];
 
@@ -1128,28 +1132,51 @@ test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
       await page.evaluate((value) => window.__TRICKAL_TEST__?.seed(value), candidateSeed);
       await installEntityTrace(page);
 
-      const keyState: AutopilotKeyState = { mode: 'farm', spaceDown: false };
-      let lastMana = 0;
+      let currentUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
       const points: { x: number; y: number }[] = [];
 
-      for (let i = 0; i < 300; i += 1) {
+      for (let i = 0; i < 200; i += 1) {
         const trace = await readEntityTrace(page);
-        const { snapshot, items } = await stepHealingItemAutopilot(page, trace, keyState, lastMana, {
-          farm: 5,
-          seek: 1,
-        });
+        const enemies = trace.filter((record) => record.shape === 'circle' && record.color === ENEMY_COLOR);
+        const player = trace.find((record) => record.shape === 'rect' && PLAYER_COLORS.has(record.color));
+        const items = trace.filter((record) => record.color === HEALING_ITEM_COLOR);
         // 매 틱 그려지는 healingItem이 정확히 1개일 때만 표본으로 쓴다 — 두 번째 드롭이
-        // 우연히 겹치면 서로 다른 두 젤리의 좌표가 섞여 "이동 추세" 판정이 오염된다.
+        // 우연히 겹치면 서로 다른 두 젤리의 좌표가 섞여 "고정 위치" 판정이 오염된다.
         if (items.length === 1) {
           const item = items[0];
-          points.push({ x: item.x + item.width / 2, y: item.y + item.height / 2 });
+          points.push({ x: item.x, y: item.y });
         }
-        if (!snapshot) break;
-        lastMana = snapshot.mana;
-        if (snapshot.status !== 'playing') break;
-        if (points.length >= 20) break;
+
+        let desiredUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
+        if (player) {
+          const playerCenterX = player.x + player.width / 2;
+          const playerCenterY = player.y + player.height / 2;
+          const threats = enemies.filter(
+            (enemy) =>
+              Math.hypot(
+                enemy.x + enemy.width / 2 - playerCenterX,
+                enemy.y + enemy.height / 2 - playerCenterY,
+              ) < HEALING_ITEM_DANGER_RADIUS_PX,
+          );
+          if (threats.length > 0) {
+            const averageThreatY =
+              threats.reduce((sum, enemy) => sum + enemy.y + enemy.height / 2, 0) / threats.length;
+            desiredUpDown = averageThreatY < playerCenterY ? 'ArrowDown' : 'ArrowUp';
+          }
+        }
+        await setHeldKey(page, currentUpDown, desiredUpDown);
+        currentUpDown = desiredUpDown;
+
+        const snapshot = await page.evaluate(async () => {
+          window.__TRICKAL_TEST__?.stepFrames(5);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const bridgeSnapshot = window.__TRICKAL_TEST__?.getSnapshot();
+          return bridgeSnapshot ? { status: bridgeSnapshot.status } : undefined;
+        });
+        if (!snapshot || snapshot.status !== 'playing') break;
+        if (points.length >= 15) break;
       }
-      await releaseAutopilotKeys(page, keyState);
+      if (currentUpDown) await page.keyboard.up(currentUpDown);
 
       if (points.length >= 15) {
         sampledPoints = points;
@@ -1159,17 +1186,12 @@ test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
 
     expect(sampledPoints.length).toBeGreaterThanOrEqual(15);
 
+    // INV-ITEM-2: 젤리는 살아있는 동안 x/y가 전혀 변하지 않는다(부동소수 오차조차 없다 —
+    // movement.ts는 healingItem의 좌표 필드를 아예 갱신하지 않는다).
     const first = sampledPoints[0];
-    const last = sampledPoints[sampledPoints.length - 1];
-    // INV-ITEM-2: vx는 항상 음수(좌측 드리프트), vy는 항상 양수(하강) — 클램프가 없으므로
-    // 표본 구간 전체에서 순수하게 좌측+하단으로만 이동해야 한다.
-    expect(last.x).toBeLessThan(first.x);
-    expect(last.y).toBeGreaterThan(first.y);
-
-    // 스텝 사이 역행(오른쪽/위쪽으로의 이동)이 없는지도 확인한다 — 부동소수 오차만 허용.
-    for (let i = 1; i < sampledPoints.length; i += 1) {
-      expect(sampledPoints[i].x).toBeLessThanOrEqual(sampledPoints[i - 1].x + 0.5);
-      expect(sampledPoints[i].y).toBeGreaterThanOrEqual(sampledPoints[i - 1].y - 0.5);
+    for (const point of sampledPoints) {
+      expect(point.x).toBe(first.x);
+      expect(point.y).toBe(first.y);
     }
   });
 
@@ -1291,18 +1313,22 @@ test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
       .toBeGreaterThanOrEqual(scoreAfterPickup);
   });
 
-  test('플레이어가 먹지 않고 방치한 회복 젤리는 화면 밖으로 사라져 더 이상 그려지지 않는다', async ({
-    page,
-  }) => {
+  test('플레이어가 먹지 않고 약 4초간 방치한 회복 젤리는 수명 타이머로 소멸한다', async ({ page }) => {
     test.setTimeout(60_000);
 
-    // 이 시나리오는 의도적으로 젤리를 쫓지 않는다 — 위 helper의 자동 seek 전환 없이,
-    // 근접 적 회피만 계속 수행해 INV-ITEM-2의 "클램프 없는 자연 소멸"만 관찰한다.
+    // INV-ITEM-2(전면 개정): 젤리는 더 이상 화면 밖으로 흘러나가 소멸하지 않고, 스폰
+    // 위치에 고정된 채 `lifetimeRemainSec`(BalanceConfig.healingItem.lifetimeSec = 4.0초 =
+    // 60fps 기준 약 240틱)이 다 되면 소멸한다. TestBridge는 world.healingItems를 직접
+    // 노출하지 않으므로(design.md §6.9), stepFrames로 실제 요청한 누적 틱 수를 카운터로
+    // 삼아 "젤리가 처음 보인 시점부터 완전히 사라질 때까지" 걸린 틱 수를 근사 측정한다.
+    // 단, 실제 배경 rAF 루프도 e2e 모드에서 계속 실시간으로 도는 것을 위 시나리오들의
+    // 주석에서 이미 확인했으므로(그 루프가 우리가 요청한 것 외의 추가 틱도 실제 경과
+    // 시간만큼 진행시킨다), 우리가 센 "요청 틱 수"는 실제 경과 틱보다 작거나 같을 수
+    // 있다 — 그래서 240 정확히가 아니라 넉넉한 여유 구간으로 검증한다.
     const candidateSeeds = [3, 2, 1];
-    let exitedProperly = false;
     let sawItem = false;
-    let scoreAtExitStart = -1;
-    let scoreAtExitEnd = -1;
+    let confirmedDead = false;
+    let ticksAliveSinceSighted = -1;
 
     for (const candidateSeed of candidateSeeds) {
       await page.goto('/?e2e=1');
@@ -1311,17 +1337,36 @@ test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
       await installEntityTrace(page);
 
       let currentUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
-      const framePoints: BoxLike[][] = [];
-      const scoresByIteration: number[] = [];
       sawItem = false;
+      confirmedDead = false;
+      let sightedAtRequestedTicks = -1;
+      let lastSeenRequestedTicks = -1;
+      let requestedTicks = 0;
+      let consecutiveAbsences = 0;
 
-      for (let i = 0; i < 200; i += 1) {
+      // 여유 있게 큰 반복 상한(600회 * 5틱 = 최대 3000 요청 틱 ≈ 50초 상당)을 두되,
+      // 실제로는 젤리가 보이고 나서 confirmedDead가 되면 훨씬 일찍 break한다.
+      for (let i = 0; i < 600; i += 1) {
         const trace = await readEntityTrace(page);
         const enemies = trace.filter((record) => record.shape === 'circle' && record.color === ENEMY_COLOR);
         const player = trace.find((record) => record.shape === 'rect' && PLAYER_COLORS.has(record.color));
         const items = trace.filter((record) => record.color === HEALING_ITEM_COLOR);
-        if (items.length > 0) sawItem = true;
-        framePoints.push(items);
+
+        if (items.length > 0) {
+          sawItem = true;
+          if (sightedAtRequestedTicks < 0) sightedAtRequestedTicks = requestedTicks;
+          lastSeenRequestedTicks = requestedTicks;
+          consecutiveAbsences = 0;
+        } else if (sightedAtRequestedTicks >= 0) {
+          // 한 번이라도 본 뒤 사라진 프레임 — 점멸(0.1초=6틱 주기) 오프 구간일 수 있으므로
+          // 연속 부재가 충분히(블링크 반주기보다 훨씬 길게) 지속돼야 "확정 소멸"로 본다.
+          consecutiveAbsences += 1;
+          if (consecutiveAbsences >= 6) {
+            confirmedDead = true;
+            ticksAliveSinceSighted = lastSeenRequestedTicks - sightedAtRequestedTicks;
+            break;
+          }
+        }
 
         let desiredUpDown: 'ArrowUp' | 'ArrowDown' | undefined;
         if (player) {
@@ -1343,53 +1388,30 @@ test.describe('회복 젤리 드롭·이동·획득 (issue #21)', () => {
         await setHeldKey(page, currentUpDown, desiredUpDown);
         currentUpDown = desiredUpDown;
 
-        const snapshot = await page.evaluate(async () => {
-          window.__TRICKAL_TEST__?.stepFrames(5);
+        // 젤리를 아직 못 봤거나 이미 살아있는 동안에는 성긴 스텝(5틱)으로 빠르게 진행하고,
+        // 사라짐 확정 판정 구간에서는 더 촘촘히(3틱) 스텝해 블링크 앨리어싱을 줄인다.
+        const stepTicks = sightedAtRequestedTicks >= 0 ? 3 : 5;
+        const snapshot = await page.evaluate(async (tickCount) => {
+          window.__TRICKAL_TEST__?.stepFrames(tickCount);
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           const bridgeSnapshot = window.__TRICKAL_TEST__?.getSnapshot();
-          return bridgeSnapshot
-            ? {
-                hp: bridgeSnapshot.hp,
-                score: bridgeSnapshot.score,
-                mana: bridgeSnapshot.mana,
-                status: bridgeSnapshot.status,
-              }
-            : undefined;
-        });
-        scoresByIteration.push(snapshot?.score ?? (scoresByIteration.at(-1) ?? 0));
+          return bridgeSnapshot ? { status: bridgeSnapshot.status } : undefined;
+        }, stepTicks);
+        requestedTicks += stepTicks;
         if (!snapshot || snapshot.status !== 'playing') break;
       }
       if (currentUpDown) await page.keyboard.up(currentUpDown);
 
-      const tracks = buildPositionTracks(
-        framePoints.map((boxes) => boxes.map((box) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 }))),
-        40,
-      );
-      const terminatedTracks = tracks.filter((track) => !track.active && track.points.length >= 2);
-      const exitedTrack = terminatedTracks.find((track) => {
-        const lastPoint = track.points[track.points.length - 1];
-        // 좌측 완전 이탈(x<0 근방) 또는 하단 이탈(y>=600 근방) — INV-ITEM-2의 두 소멸 조건.
-        return lastPoint.x <= 30 || lastPoint.y >= 570;
-      });
-      exitedProperly = exitedTrack !== undefined;
-
-      if (sawItem && exitedTrack) {
-        // 그 젤리가 화면에 마지막으로 보였던 프레임과 그 다음(사라진) 프레임 사이의 SCORE를
-        // 비교한다 — 소멸이 아니라 몰래 획득된 것이라면 만피 보너스(+500)나 처치(+10)와
-        // 뒤섞여 이 구간에서 점수가 튀었을 것이다.
-        const lastVisibleIteration = exitedTrack.points[exitedTrack.points.length - 1].frameIndex;
-        scoreAtExitStart = scoresByIteration[lastVisibleIteration] ?? -1;
-        scoreAtExitEnd = scoresByIteration[Math.min(lastVisibleIteration + 1, scoresByIteration.length - 1)] ?? -1;
-        break;
-      }
+      if (sawItem && confirmedDead) break;
     }
 
     expect(sawItem).toBe(true);
-    expect(exitedProperly).toBe(true);
-    // 소멸은 획득이 아니므로(INV-ITEM-2) SCORE에 부수효과가 없어야 한다 — 만피 보너스
-    // (+500)만큼 튀지 않았는지 확인한다(동시에 벌어질 수 있는 일반 처치(+10 단위)는
-    // 이 시나리오의 관심사가 아니므로 500 미만인지만 확인해 오탐을 피한다).
-    expect(scoreAtExitStart).toBeGreaterThanOrEqual(0);
-    expect(scoreAtExitEnd - scoreAtExitStart).toBeLessThan(500);
+    expect(confirmedDead).toBe(true);
+    // BalanceConfig.healingItem.lifetimeSec = 4.0초 = 60fps 기준 약 240틱. 배경 rAF 루프가
+    // 우리가 요청한 것 이상으로 실시간 진행시킬 수 있어(위 주석 참고) 실측 "요청 틱 수"는
+    // 240보다 작게 나올 수 있고, 반대로 초기 관측 지연(5틱 단위 성긴 스텝)만큼 더 크게
+    // 나올 수도 있다 — 그래서 "약 4초"를 폭넓게 감싸는 구간(2.3초~6초 상당)으로 검증한다.
+    expect(ticksAliveSinceSighted).toBeGreaterThanOrEqual(140);
+    expect(ticksAliveSinceSighted).toBeLessThanOrEqual(360);
   });
 });
