@@ -104,10 +104,29 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *   1. Player: resolve up/down/left/right into a diagonal-normalized displacement
  *      (INV-MOVE-1), apply it, then clamp both axes to `world.bounds` in the same tick
  *      (INV-MOVE-2).
- *   2. Enemies: move every alive enemy by `-enemySpeed * dt` on x; any enemy whose
- *      right edge has crossed the left screen edge (`x + width < 0`) becomes
- *      `alive = false` in the same tick without changing HP or any other session field
- *      (INV-ESCAPE-1).
+ *   2. Enemies (issue #19 — action-based motion, supersedes the original constant `-x`
+ *      description): for every alive enemy, integrate position from its CURRENT
+ *      `action` and that action's fields (set by the most recent `updateEnemyAi` call,
+ *      which always runs AFTER this system within the same tick — see the System
+ *      Execution Order in invariants.md — so this system always reads one-tick-old
+ *      decisions, never a same-tick reselection) using exactly one of:
+ *      - `'dash'`: `x += dashVx * dt; y += dashVy * dt` (constant velocity, no other
+ *        field changes).
+ *      - `'oscillate'`: `x -= BalanceConfig.enemyAi.oscillateDriftSpeed * dt;
+ *        oscillatePhaseSec += dt; y = oscillateBaseY + BalanceConfig.enemyAi.oscillateAmplitudePx
+ *        * Math.sin((2 * Math.PI / BalanceConfig.enemyAi.oscillatePeriodSec) * oscillatePhaseSec)`.
+ *      - `'circle'`: `circleCenterX -= BalanceConfig.enemyAi.circleDriftSpeed * dt;
+ *        circleAngleRad += BalanceConfig.enemyAi.circleAngularSpeedRadPerSec * circleDir * dt;
+ *        x = circleCenterX + BalanceConfig.enemyAi.circleRadiusPx * Math.cos(circleAngleRad) - width / 2;
+ *        y = circleCenterY + BalanceConfig.enemyAi.circleRadiusPx * Math.sin(circleAngleRad) - height / 2`
+ *        (`circleCenterY` is read-only here — it never drifts, only `circleCenterX` does).
+ *      Then, for EVERY alive enemy regardless of `action` (INV-EAI-5): clamp
+ *      `y = clamp(y, 0, world.bounds.height - height)` (top/bottom — both edges);
+ *      clamp `x = Math.min(x, world.bounds.width - width)` (right edge only — the left
+ *      edge is deliberately never clamped, so DASH/OSCILLATE/CIRCLE can still exit
+ *      left); then, unchanged from before issue #19, any enemy whose right edge has
+ *      crossed the left screen edge (`x + width < 0`) becomes `alive = false` in the
+ *      same tick without changing HP or any other session field (INV-ESCAPE-1).
  *   3. Regular projectiles: move every alive projectile by `+regularSpeed * dt` on x,
  *      decrement its lifetime, and expire it at the right edge or at lifetime zero.
  *   4. Skill projectiles: retain the alive enemy matching `targetId`; only when that lock
@@ -124,7 +143,9 @@ export type DetectCollisions = (world: Readonly<GameWorld>) => CollisionResult;
  *      the playfield through ANY of the 4 edges — `x + width < 0 || x > bounds.width ||
  *      y + height < 0 || y > bounds.height` — or at lifetime zero (INV-EPROJ-3). This is
  *      unlike regular projectiles, which only ever check the right edge.
- * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].alive,
+ * @mutates world.player.x, world.player.y, world.enemies[].x, world.enemies[].y,
+ *          world.enemies[].alive, world.enemies[].oscillatePhaseSec,
+ *          world.enemies[].circleAngleRad, world.enemies[].circleCenterX,
  *          world.regularProjectiles[].x, world.regularProjectiles[].lifetimeRemainSec,
  *          world.regularProjectiles[].alive, world.skillProjectiles[].x,
  *          world.skillProjectiles[].y, world.skillProjectiles[].vx,
@@ -227,10 +248,86 @@ export type FireEnemyProjectiles = (world: GameWorld, dt: number, rng: Rng) => v
  * `projFireCooldownRemainSec` is initialized to the same current-level fire interval
  * formula used by `FireEnemyProjectiles` (see that type's `@module` doc), so a
  * newly-spawned enemy does not fire in the same tick it spawns.
+ * A newly-created enemy's action-related fields (`action`, `actionInitialized`, `dashVx`,
+ * `dashVy`, `oscillateBaseY`, `oscillatePhaseSec`, `circleCenterX`, `circleCenterY`,
+ * `circleAngleRad`, `circleDir`) are initialized to trivial placeholders — any valid
+ * `EntityKind`-consistent values are acceptable as long as `actionInitialized` is exactly
+ * `false` — because `applyMovement` already ran earlier in this same tick (before
+ * `spawnTick`, per the System Execution Order) and therefore never reads a
+ * same-tick-spawned enemy's placeholders, and `updateEnemyAi` (which runs immediately
+ * after `spawnTick` in the same tick) is guaranteed to fully select every one of those
+ * fields exactly once, the instant it sees `actionInitialized === false` (issue #19,
+ * INV-EAI-1 — "스폰 직후 단 1회" is satisfied by this same-tick placeholder-then-select
+ * handoff, not by `spawnTick` picking real values itself). Once selected, this enemy's
+ * `updateEnemyAi` never touches these fields again for the rest of its lifetime.
  * @mutates world.spawner, world.enemies, world.nextEntityId
  * @module @/game/systems/spawner
  */
 export type SpawnTick = (world: GameWorld, dt: number, rng: Rng) => void;
+
+// ---------------------------------------------------------------------------
+// enemyAi.ts
+// ---------------------------------------------------------------------------
+
+/**
+ * One-time-per-enemy movement-behavior selection (issue #19, amended: the original
+ * periodic re-roll was removed). Runs once per tick, after `spawnTick` and before
+ * `detectCollisions`, and is the ONLY system allowed to consume `rng` on behalf of enemy
+ * behavior selection — `applyMovement` (which runs earlier, before `spawnTick`, in the
+ * same tick) never receives an `rng` argument and only integrates positions from
+ * whatever action fields this system set, once, on a PRIOR tick (see `ApplyMovement`'s
+ * JSDoc for the exact one-tick-lag data-flow rationale).
+ *
+ * For every alive enemy, in `world.enemies` array order:
+ * 1. If `actionInitialized === true`, do nothing further for this enemy this tick (no
+ *    `rng` consumed, no field touched — the enemy's `action` and every action-derived
+ *    field are permanent for the rest of its lifetime, INV-EAI-1).
+ * 2. Otherwise (`actionInitialized === false`, true for every newly-spawned enemy this
+ *    tick — INV-EAI-1), select in this exact order, consuming `rng` exactly once per
+ *    numbered step below, then set `actionInitialized = true`:
+ *    a. `actionIndex = Math.min(2, Math.floor(rng() * 3))` against the fixed table
+ *       `0: 'dash', 1: 'oscillate', 2: 'circle'`; set `action` to the result.
+ *    b. Exactly one of the following, depending on the `action` chosen in step (a):
+ *       - `'dash'`: direction MUST always have a leftward component (unit vector
+ *         `ux < 0`) — candidates that point up/down/right permanently strand the enemy
+ *         against the right or top/bottom bounds once behaviors became permanent
+ *         (INV-EAI-1), since it can then never satisfy the leftward-exit despawn rule
+ *         (INV-ESCAPE-1); this regression was found in play and is now closed at the
+ *         contract level (INV-EAI-2). While
+ *         `world.session.level < BalanceConfig.enemyAi.dashOctoDirectionLevel`: consume
+ *         NO additional `rng()` call — deterministically use index `4` (due west, 180
+ *         deg) from the fixed 8-direction unit-vector table documented on
+ *         `FireEnemyProjectiles`. Otherwise (level at or above the threshold): draw one
+ *         more `rng()` call, `index3 = Math.min(2, Math.floor(rng() * 3))`, mapped
+ *         through `[3, 4, 5]` (southwest, west, northwest — the only three table entries
+ *         with `ux < 0`) into that same table. Either way, set
+ *         `dashVx = unitVector.x * BalanceConfig.enemy.speed` and
+ *         `dashVy = unitVector.y * BalanceConfig.enemy.speed`.
+ *       - `'oscillate'`: consumes no additional `rng`. Set `oscillateBaseY` to this
+ *         enemy's CURRENT `y` and `oscillatePhaseSec` to `0` (INV-EAI-3).
+ *       - `'circle'`: draw one more `rng()` call: `circleDir = rng() < 0.5 ? 1 : -1`.
+ *         Set `circleAngleRad = 0`, then — so the enemy's current position lands
+ *         exactly on the new orbit with no visible jump —
+ *         `circleCenterX = (x + width / 2) - BalanceConfig.enemyAi.circleRadiusPx` and
+ *         `circleCenterY = y + height / 2` (INV-EAI-4).
+ *    c. `actionInitialized = true` — from this point on, step 1 above short-circuits for
+ *       this enemy for the rest of its lifetime; none of these fields are ever
+ *       re-selected or mutated by this system again.
+ *
+ * An enemy being initialized this tick consumes `rng` exactly 1 time for `'oscillate'` or
+ * for `'dash'` below `dashOctoDirectionLevel` (no extra direction draw), exactly 2 times
+ * for `'circle'` or for `'dash'` at/above `dashOctoDirectionLevel` (one extra direction
+ * draw); an already-initialized enemy consumes 0, on every subsequent tick for the rest
+ * of its life. The same initial seed, world, input, and spawn sequence always reproduce
+ * the same per-enemy action selection.
+ * @mutates world.enemies[].action, world.enemies[].actionInitialized,
+ *          world.enemies[].dashVx, world.enemies[].dashVy,
+ *          world.enemies[].oscillateBaseY, world.enemies[].oscillatePhaseSec,
+ *          world.enemies[].circleCenterX, world.enemies[].circleCenterY,
+ *          world.enemies[].circleAngleRad, world.enemies[].circleDir
+ * @module @/game/systems/enemyAi
+ */
+export type UpdateEnemyAi = (world: GameWorld, dt: number, rng: Rng) => void;
 
 // ---------------------------------------------------------------------------
 // combat.ts
@@ -295,9 +392,12 @@ export type ApplyProgression = (world: GameWorld) => void;
 
 /**
  * Orchestrates exactly one fixed-size simulation tick, in the order documented in
- * invariants.md ("System Execution Order"). As of issue #17, that order is an 8-step
- * sequence with `fireEnemyProjectiles` running as step 2, between `fireWeapon` (step 1)
- * and `applyMovement` (step 3) — see invariants.md for the full, authoritative sequence.
+ * invariants.md ("System Execution Order"). As of issue #19, that order is a 9-step
+ * sequence: `fireWeapon` (1), `fireEnemyProjectiles` (2), `applyMovement` (3),
+ * `spawnTick` (4), `updateEnemyAi` (5), `detectCollisions` (6), `applyCombat` (7),
+ * `applyProgression` (8), dead-entity sweep (9) — see invariants.md for the full,
+ * authoritative sequence and the rationale for placing `updateEnemyAi` after
+ * `spawnTick`/before `detectCollisions`.
  * A no-op when `world.session.status !== 'playing'` (D-6 — a finished/errored world does
  * not keep simulating). `dt` is always the fixed step in seconds
  * (`BalanceConfig.loop.FIXED_STEP_MS / 1000`), never a raw frame delta (§6.2).

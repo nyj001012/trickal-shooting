@@ -52,11 +52,93 @@ export interface Player extends EntityBase {
   invulnRemainSec: number;
 }
 
-/** An enemy entity ("슬라임"). Moves left (-x) every tick until it dies or escapes (D-5). */
+/**
+ * An enemy entity ("슬라임"). As of issue #19, an enemy's per-tick motion is governed by
+ * one of three behaviors (`action`) that it selects exactly once, immediately on spawn,
+ * and keeps for the rest of its life — this supersedes design.md D-5's original "always
+ * moves left at a constant speed" description; see invariants.md INV-EAI-1..5 for the
+ * authoritative formulas. Regardless of `action`, the enemy still dies with no session
+ * side effects the tick it fully exits the left edge (`x + width < 0`, unchanged
+ * INV-ESCAPE-1).
+ */
 export interface Enemy extends EntityBase {
   readonly kind: 'enemy';
   /** count; current remaining hit points. Enemy dies (alive=false) when this reaches <= 0. */
   hp: number;
+  /**
+   * The behavior this enemy executes for its entire lifetime (issue #19, amended:
+   * periodic re-roll removed). Chosen uniformly at random by `updateEnemyAi` exactly once,
+   * on the first tick after spawn while `actionInitialized === false` (INV-EAI-1).
+   * `applyMovement` reads this every tick to decide which of the three
+   * position-integration formulas to apply (INV-EAI-2/3/4); it never changes `action`
+   * itself. Once selected, `action` never changes again for this enemy.
+   */
+  action: 'dash' | 'oscillate' | 'circle';
+  /**
+   * Whether this enemy has already been assigned its permanent `action` (issue #19,
+   * amended: replaces the removed countdown-based re-roll timer). `spawnTick` initializes
+   * this to `false`. On the first tick where it is `false`, `updateEnemyAi` selects
+   * `action` (and every field below that belongs to the chosen action) exactly once, then
+   * flips this to `true`. While `true`, `updateEnemyAi` never re-selects or mutates any of
+   * these fields again for this enemy — they hold for the enemy's entire remaining
+   * lifetime (INV-EAI-1).
+   */
+  actionInitialized: boolean;
+  /**
+   * px/sec; horizontal velocity for the DASH behavior. Chosen once when DASH is selected
+   * (from a fixed compass-direction table gated by `world.session.level`, INV-EAI-2) and
+   * held constant for the enemy's entire remaining lifetime. Meaningless while
+   * `action !== 'dash'`. Always negative (unit vector `ux < 0`) — every DASH direction
+   * candidate is guaranteed to carry a leftward component so the enemy can eventually
+   * satisfy the leftward-exit despawn rule (INV-ESCAPE-1) instead of stranding
+   * permanently against a bound (INV-EAI-2).
+   */
+  dashVx: number;
+  /** px/sec; vertical velocity for the DASH behavior. Same lifetime rules as `dashVx`. */
+  dashVy: number;
+  /**
+   * px; the y position captured at the moment the OSCILLATE behavior was selected.
+   * `applyMovement` oscillates around this baseline every tick for the enemy's entire
+   * remaining lifetime (INV-EAI-3). Meaningless while `action !== 'oscillate'`.
+   */
+  oscillateBaseY: number;
+  /**
+   * sec; cumulative elapsed time since the OSCILLATE behavior was selected. Initialized to
+   * 0 by `updateEnemyAi` on selection, then incremented by `dt` every tick by
+   * `applyMovement` (never by `updateEnemyAi`) for as long as `action === 'oscillate'`
+   * (INV-EAI-3). Meaningless while `action !== 'oscillate'`.
+   */
+  oscillatePhaseSec: number;
+  /**
+   * px; x of the CIRCLE behavior's orbit center. Initialized by `updateEnemyAi` on
+   * selection so the enemy's current position lands exactly on the orbit at
+   * `circleAngleRad = 0` (no visible teleport), then drifted left every tick by
+   * `applyMovement` for the enemy's entire remaining lifetime (INV-EAI-4). Meaningless
+   * while `action !== 'circle'`.
+   */
+  circleCenterX: number;
+  /**
+   * px; y of the CIRCLE behavior's orbit center. Initialized once on selection (same
+   * continuity rule as `circleCenterX`) and never changes afterward — only the center's
+   * x drifts left; y is fixed for the enemy's entire remaining lifetime (INV-EAI-4).
+   * Meaningless while `action !== 'circle'`.
+   */
+  circleCenterY: number;
+  /**
+   * rad; cumulative orbit angle. Initialized to 0 by `updateEnemyAi` on selection, then
+   * incremented every tick by `applyMovement` by
+   * `BalanceConfig.enemyAi.circleAngularSpeedRadPerSec * circleDir * dt` (INV-EAI-4).
+   * Meaningless while `action !== 'circle'`.
+   */
+  circleAngleRad: number;
+  /**
+   * Rotation direction for the CIRCLE behavior: `1` for increasing `circleAngleRad`
+   * (counter-clockwise in standard math orientation), `-1` for decreasing (clockwise).
+   * Chosen uniformly at random by `updateEnemyAi` once, when CIRCLE is selected
+   * (INV-EAI-4), and held for the enemy's entire remaining lifetime. Meaningless while
+   * `action !== 'circle'`.
+   */
+  circleDir: 1 | -1;
   /**
    * count; score granted to GameSession.score when this enemy dies to a projectile hit.
    * Captured from BalanceConfig at spawn time so combat.ts stays a pure function of its inputs.

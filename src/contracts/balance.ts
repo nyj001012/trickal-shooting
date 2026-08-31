@@ -81,7 +81,12 @@ export interface EnemyBalance {
   readonly width: number;
   /** px; AABB height. */
   readonly height: number;
-  /** px/sec; always applied along -x (D-5). */
+  /**
+   * px/sec; magnitude of the constant velocity vector used by the DASH behavior
+   * (issue #19 — supersedes the original design.md D-5 "always applied along -x"
+   * description; see invariants.md INV-EAI-2). OSCILLATE and CIRCLE use their own
+   * dedicated speed fields in `EnemyAiBalance` instead of this one.
+   */
   readonly speed: number;
   /** count; starting hit points. */
   readonly hp: number;
@@ -91,6 +96,34 @@ export interface EnemyBalance {
   readonly manaGain: number;
   /** count; HP damage dealt to the player on direct contact. */
   readonly contactDamage: number;
+}
+
+/**
+ * Tuning for the three randomized enemy movement behaviors introduced in issue #19
+ * (DASH / OSCILLATE / CIRCLE). See invariants.md INV-EAI-1..5 for the formulas that
+ * consume these values.
+ */
+export interface EnemyAiBalance {
+  /**
+   * integer level threshold. While `world.session.level < dashOctoDirectionLevel`, a
+   * newly-selected DASH direction is drawn only from the 4 cardinal compass directions
+   * (0/90/180/270 deg); at or above this level it is drawn from all 8 compass directions
+   * (adding the 45/135/225/315 deg diagonals), matching `FireEnemyProjectiles`' fixed
+   * 8-direction table (INV-EAI-2).
+   */
+  readonly dashOctoDirectionLevel: number;
+  /** px; amplitude of the OSCILLATE behavior's vertical sine wave around `oscillateBaseY`. */
+  readonly oscillateAmplitudePx: number;
+  /** sec; period of one full OSCILLATE sine cycle. */
+  readonly oscillatePeriodSec: number;
+  /** px/sec; constant leftward drift speed applied to `x` while OSCILLATE is active. */
+  readonly oscillateDriftSpeed: number;
+  /** px; radius of the CIRCLE behavior's orbit. */
+  readonly circleRadiusPx: number;
+  /** rad/sec; angular speed of `circleAngleRad`, before the `circleDir` sign is applied. */
+  readonly circleAngularSpeedRadPerSec: number;
+  /** px/sec; constant leftward drift speed applied to `circleCenterX` while CIRCLE is active. */
+  readonly circleDriftSpeed: number;
 }
 
 export interface EnemyProjectileBalance {
@@ -186,6 +219,7 @@ export interface BalanceConfig {
   readonly regularProjectile: RegularProjectileBalance;
   readonly skillProjectile: SkillProjectileBalance;
   readonly enemy: EnemyBalance;
+  readonly enemyAi: EnemyAiBalance;
   readonly enemyProjectile: EnemyProjectileBalance;
   readonly spawn: SpawnBalance;
   readonly progression: ProgressionBalance;

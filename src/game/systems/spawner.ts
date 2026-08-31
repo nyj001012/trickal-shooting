@@ -51,6 +51,21 @@ export const spawnTick: SpawnTick = (world, dt, rng): void => {
     width: BALANCE.enemy.width,
     height: BALANCE.enemy.height,
     hp: BALANCE.enemy.hp,
+    // Placeholder action-selection fields (issue #19, amended: single spawn-time selection).
+    // actionInitialized MUST be exactly false so that updateEnemyAi (running immediately
+    // after this same tick) performs its one-and-only selection on its very next pass.
+    // applyMovement already ran earlier this tick, before spawnTick, so it never reads any
+    // of these placeholders for this enemy.
+    action: 'dash',
+    actionInitialized: false,
+    dashVx: 0,
+    dashVy: 0,
+    oscillateBaseY: y,
+    oscillatePhaseSec: 0,
+    circleCenterX: 0,
+    circleCenterY: 0,
+    circleAngleRad: 0,
+    circleDir: 1,
     scoreValue: BALANCE.enemy.scoreValue,
     manaGain: BALANCE.enemy.manaGain,
     contactDamage: BALANCE.enemy.contactDamage,

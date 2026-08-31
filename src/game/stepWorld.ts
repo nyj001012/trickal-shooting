@@ -9,6 +9,7 @@ import type { StepWorld } from '@/contracts';
 
 import { applyCombat } from './systems/combat';
 import { detectCollisions } from './systems/collision';
+import { updateEnemyAi } from './systems/enemyAi';
 import { fireEnemyProjectiles } from './systems/enemyWeapon';
 import { applyMovement } from './systems/movement';
 import { applyProgression } from './systems/progression';
@@ -24,6 +25,7 @@ export const stepWorld: StepWorld = (world, input, dt, rng): void => {
   fireEnemyProjectiles(world, dt, rng);
   applyMovement(world, input, dt);
   spawnTick(world, dt, rng);
+  updateEnemyAi(world, dt, rng);
   const collisions = detectCollisions(world);
   applyCombat(world, collisions, dt);
   applyProgression(world);

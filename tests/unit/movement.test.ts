@@ -100,23 +100,238 @@ describe('applyMovement — player boundary clamp (INV-MOVE-2)', () => {
   });
 });
 
-describe('applyMovement — enemies move left and disappear without damaging the player (D-5, INV-ESCAPE-1)', () => {
-  it('moves every alive enemy left by speed * dt', () => {
-    const enemy = makeEnemy({ x: 400, y: 300 });
-    const world = makeWorld({ enemies: [enemy] });
-    applyMovement(world, makeInputState(), DT);
-    expect(world.enemies[0].x).toBeCloseTo(400 - BALANCE.enemy.speed * DT, 5);
+describe('applyMovement — enemy action-based motion (issue #19)', () => {
+  describe('DASH — constant velocity from dashVx/dashVy (INV-EAI-2)', () => {
+    it('integrates position by dashVx * dt / dashVy * dt and leaves the velocity fields untouched', () => {
+      const enemy = makeEnemy({ x: 400, y: 300, action: 'dash', dashVx: -90, dashVy: 45 });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      const moved = world.enemies[0];
+      expect(moved.x).toBeCloseTo(400 + -90 * DT, 8);
+      expect(moved.y).toBeCloseTo(300 + 45 * DT, 8);
+      expect(moved.dashVx).toBe(-90);
+      expect(moved.dashVy).toBe(45);
+    });
+
+    it('does not move a dead enemy', () => {
+      const enemy = makeEnemy({
+        x: 400,
+        y: 300,
+        action: 'dash',
+        dashVx: -90,
+        dashVy: 0,
+        alive: false,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      expect(world.enemies[0].x).toBe(400);
+      expect(world.enemies[0].y).toBe(300);
+    });
   });
 
-  it('does not move a dead enemy', () => {
-    const enemy = makeEnemy({ x: 400, y: 300, alive: false });
-    const world = makeWorld({ enemies: [enemy] });
-    applyMovement(world, makeInputState(), DT);
-    expect(world.enemies[0].x).toBe(400);
+  describe('OSCILLATE — sine wave around oscillateBaseY plus constant leftward drift (INV-EAI-3)', () => {
+    it('drifts x left by oscillateDriftSpeed * dt, advances oscillatePhaseSec by dt, and sets y from the sine formula', () => {
+      const enemy = makeEnemy({
+        x: 400,
+        y: 300,
+        action: 'oscillate',
+        oscillateBaseY: 300,
+        oscillatePhaseSec: 0.2,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      const moved = world.enemies[0];
+      expect(moved.x).toBeCloseTo(400 - BALANCE.enemyAi.oscillateDriftSpeed * DT, 8);
+      expect(moved.oscillatePhaseSec).toBeCloseTo(0.2 + DT, 8);
+      const expectedY =
+        300 +
+        BALANCE.enemyAi.oscillateAmplitudePx *
+          Math.sin(((2 * Math.PI) / BALANCE.enemyAi.oscillatePeriodSec) * (0.2 + DT));
+      expect(moved.y).toBeCloseTo(expectedY, 8);
+    });
+
+    it('keeps oscillateBaseY fixed across ticks (the sine baseline never moves while OSCILLATE is active)', () => {
+      const enemy = makeEnemy({
+        x: 400,
+        y: 260,
+        action: 'oscillate',
+        oscillateBaseY: 260,
+        oscillatePhaseSec: 0,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      applyMovement(world, makeInputState(), DT);
+      expect(world.enemies[0].oscillateBaseY).toBe(260);
+    });
+
+    it('does not move a dead enemy', () => {
+      const enemy = makeEnemy({
+        x: 400,
+        y: 300,
+        action: 'oscillate',
+        oscillateBaseY: 300,
+        alive: false,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      expect(world.enemies[0].x).toBe(400);
+      expect(world.enemies[0].y).toBe(300);
+    });
+  });
+
+  describe('CIRCLE — orbit around a center that drifts left, angle advances by angularSpeed * circleDir (INV-EAI-4)', () => {
+    it('advances circleAngleRad, drifts circleCenterX left, keeps circleCenterY fixed, and derives x/y from the orbit formula', () => {
+      const enemy = makeEnemy({
+        action: 'circle',
+        circleCenterX: 500,
+        circleCenterY: 260,
+        circleAngleRad: 0,
+        circleDir: 1,
+        width: 28,
+        height: 28,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      const moved = world.enemies[0];
+      const expectedCenterX = 500 - BALANCE.enemyAi.circleDriftSpeed * DT;
+      const expectedAngle = BALANCE.enemyAi.circleAngularSpeedRadPerSec * 1 * DT;
+      expect(moved.circleCenterX).toBeCloseTo(expectedCenterX, 8);
+      expect(moved.circleAngleRad).toBeCloseTo(expectedAngle, 8);
+      expect(moved.circleCenterY).toBe(260);
+      expect(moved.x).toBeCloseTo(
+        expectedCenterX + BALANCE.enemyAi.circleRadiusPx * Math.cos(expectedAngle) - 28 / 2,
+        8,
+      );
+      expect(moved.y).toBeCloseTo(
+        260 + BALANCE.enemyAi.circleRadiusPx * Math.sin(expectedAngle) - 28 / 2,
+        8,
+      );
+    });
+
+    it('reverses the angle-advance sign for circleDir = -1', () => {
+      const enemy = makeEnemy({
+        action: 'circle',
+        circleCenterX: 500,
+        circleCenterY: 260,
+        circleAngleRad: 1,
+        circleDir: -1,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      const expectedAngle = 1 - BALANCE.enemyAi.circleAngularSpeedRadPerSec * DT;
+      expect(world.enemies[0].circleAngleRad).toBeCloseTo(expectedAngle, 8);
+    });
+
+    it('does not move a dead enemy', () => {
+      const enemy = makeEnemy({
+        action: 'circle',
+        circleCenterX: 500,
+        circleCenterY: 260,
+        alive: false,
+      });
+      const world = makeWorld({ enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      expect(world.enemies[0].circleCenterX).toBe(500);
+      expect(world.enemies[0].circleAngleRad).toBe(0);
+    });
+  });
+
+  describe('common boundary rules across all three actions (INV-EAI-5)', () => {
+    const bounds = { width: 800, height: 600 };
+    const width = 28;
+    const height = 28;
+
+    it.each([
+      { action: 'dash' as const, overrides: { dashVx: 0, dashVy: -100000 } },
+      {
+        action: 'oscillate' as const,
+        overrides: {
+          oscillateBaseY: -100000,
+          oscillatePhaseSec: BALANCE.enemyAi.oscillatePeriodSec / 4,
+        },
+      },
+      {
+        action: 'circle' as const,
+        overrides: { circleCenterX: 400, circleCenterY: -100000, circleAngleRad: Math.PI / 2 },
+      },
+    ])('clamps y to bounds top (0) when $action drives far above it', ({ action, overrides }) => {
+      const enemy = makeEnemy({ x: 400, y: 0, width, height, action, ...overrides });
+      const world = makeWorld({ bounds, enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      expect(world.enemies[0].y).toBe(0);
+    });
+
+    it.each([
+      { action: 'dash' as const, overrides: { dashVx: 0, dashVy: 100000 } },
+      {
+        action: 'oscillate' as const,
+        overrides: {
+          oscillateBaseY: 100000,
+          oscillatePhaseSec: BALANCE.enemyAi.oscillatePeriodSec / 4,
+        },
+      },
+      {
+        action: 'circle' as const,
+        overrides: { circleCenterX: 400, circleCenterY: 100000, circleAngleRad: Math.PI / 2 },
+      },
+    ])(
+      'clamps y to bounds bottom (bounds.height - height) when $action drives far below it',
+      ({ action, overrides }) => {
+        const enemy = makeEnemy({ x: 400, y: bounds.height - height, width, height, action, ...overrides });
+        const world = makeWorld({ bounds, enemies: [enemy] });
+        applyMovement(world, makeInputState(), DT);
+        expect(world.enemies[0].y).toBe(bounds.height - height);
+      },
+    );
+
+    it.each([
+      { action: 'dash' as const, overrides: { dashVx: 100000, dashVy: 0 } },
+      { action: 'oscillate' as const, overrides: { oscillateBaseY: 300 } },
+      {
+        action: 'circle' as const,
+        overrides: { circleCenterX: 100000, circleCenterY: 300, circleAngleRad: 0 },
+      },
+    ])('clamps x to bounds.width - width (right edge only) when $action drives far past it', ({ action, overrides }) => {
+      const enemy = makeEnemy({
+        x: action === 'oscillate' ? 100000 : 400,
+        y: 300,
+        width,
+        height,
+        action,
+        ...overrides,
+      });
+      const world = makeWorld({ bounds, enemies: [enemy] });
+      applyMovement(world, makeInputState(), DT);
+      expect(world.enemies[0].x).toBe(bounds.width - width);
+    });
+
+    it.each([
+      { action: 'dash' as const, overrides: { dashVx: -100000, dashVy: 0 } },
+      { action: 'oscillate' as const, overrides: { oscillateBaseY: 300 } },
+      {
+        action: 'circle' as const,
+        overrides: { circleCenterX: -100000, circleCenterY: 300, circleAngleRad: 0 },
+      },
+    ])(
+      'never clamps the left edge and marks the enemy dead once it fully exits it, for $action (INV-ESCAPE-1)',
+      ({ action, overrides }) => {
+        const enemy = makeEnemy({
+          x: action === 'oscillate' ? -100000 : 400,
+          y: 300,
+          width,
+          height,
+          action,
+          ...overrides,
+        });
+        const world = makeWorld({ bounds, enemies: [enemy] });
+        applyMovement(world, makeInputState(), DT);
+        expect(world.enemies[0].alive).toBe(false);
+      },
+    );
   });
 
   it('marks an enemy dead without changing session or invulnerability once its right edge crosses the left screen edge', () => {
-    const escaping = makeEnemy({ x: -1000, width: 28 }); // already far past the left edge
+    const escaping = makeEnemy({ x: -1000, width: 28, action: 'dash', dashVx: -BALANCE.enemy.speed, dashVy: 0 }); // already far past the left edge
     const world = makeWorld({
       player: makePlayer({ invulnRemainSec: BALANCE.player.invulnSec / 2 }),
       enemies: [escaping],
@@ -137,6 +352,9 @@ describe('applyMovement — enemies move left and disappear without damaging the
     const atBoundaryAfterMovement = makeEnemy({
       x: -width + BALANCE.enemy.speed * DT,
       width,
+      action: 'dash',
+      dashVx: -BALANCE.enemy.speed,
+      dashVy: 0,
     });
     const world = makeWorld({ enemies: [atBoundaryAfterMovement] });
     applyMovement(world, makeInputState(), DT);

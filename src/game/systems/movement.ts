@@ -72,7 +72,45 @@ export const applyMovement: ApplyMovement = (world, input, dt): void => {
 
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
-    enemy.x -= BALANCE.enemy.speed * dt;
+
+    switch (enemy.action) {
+      case 'dash': {
+        enemy.x += enemy.dashVx * dt;
+        enemy.y += enemy.dashVy * dt;
+        break;
+      }
+      case 'oscillate': {
+        enemy.x -= BALANCE.enemyAi.oscillateDriftSpeed * dt;
+        enemy.oscillatePhaseSec += dt;
+        enemy.y =
+          enemy.oscillateBaseY +
+          BALANCE.enemyAi.oscillateAmplitudePx *
+            Math.sin(
+              ((2 * Math.PI) / BALANCE.enemyAi.oscillatePeriodSec) * enemy.oscillatePhaseSec,
+            );
+        break;
+      }
+      case 'circle': {
+        enemy.circleCenterX -= BALANCE.enemyAi.circleDriftSpeed * dt;
+        enemy.circleAngleRad += BALANCE.enemyAi.circleAngularSpeedRadPerSec * enemy.circleDir * dt;
+        enemy.x =
+          enemy.circleCenterX +
+          BALANCE.enemyAi.circleRadiusPx * Math.cos(enemy.circleAngleRad) -
+          enemy.width / 2;
+        enemy.y =
+          enemy.circleCenterY +
+          BALANCE.enemyAi.circleRadiusPx * Math.sin(enemy.circleAngleRad) -
+          enemy.height / 2;
+        break;
+      }
+      default: {
+        const exhaustive: never = enemy.action;
+        throw new Error(`unhandled enemy action: ${String(exhaustive)}`);
+      }
+    }
+
+    enemy.y = clamp(enemy.y, 0, world.bounds.height - enemy.height);
+    enemy.x = Math.min(enemy.x, world.bounds.width - enemy.width);
     if (enemy.x + enemy.width < 0) {
       enemy.alive = false;
     }
