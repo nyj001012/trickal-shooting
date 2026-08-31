@@ -14,3 +14,9 @@ test-results/
 # os
 .DS_Store
 Thumbs.db
+
+# web-sdlc-harness 정의 파일 (이 프로젝트의 산출물이 아니라 하네스 배포판 자산이므로 추적하지 않는다)
+.claude/agents/
+.claude/skills/
+.claude/tools/
+.agents/
