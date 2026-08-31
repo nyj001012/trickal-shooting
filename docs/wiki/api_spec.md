@@ -15,7 +15,7 @@
 | `RegularProjectile` | 공통 Box 필드, `damage`, `lifetimeRemainSec`                                                                    | 우측으로 직진하는 일반탄                         |
 | `SkillProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`, `targetId`, readonly 원·근거리 조향 튜닝              | 생존 적을 락온하고 근거리 회전력을 높이는 스킬탄 |
 | `EnemyProjectile`   | 공통 Box 필드, `damage`, `lifetimeRemainSec`, `vx`, `vy`                                                        | 적이 8방향으로 발사하는 직진 투사체, 4변 이탈 소멸 |
-| `HealingItem`       | 공통 Box 필드, `vx`, `vy`                                                                                      | 적 처치 시 드롭되는 회복 젤리, 좌하향 이동, 좌측·하단 이탈 소멸 (issue #21) |
+| `HealingItem`       | 공통 Box 필드, `lifetimeRemainSec`                                                                               | 적 처치 시 드롭되는 회복 젤리, 스폰 위치 고정, 4초 수명 타이머로 소멸, 마지막 1초 점멸 (issue #21) |
 | `InputState`        | `up`, `down`, `left`, `right`, `skill`, `restart`                                                               | DOM 코드에서 변환된 의미 기반 입력               |
 | `HudSnapshot`       | `hp`, `maxHp`, `mana`, `score`, `level`, `status`                                                               | React가 구독하는 읽기 전용 투영                  |
 
@@ -66,7 +66,7 @@
 ### 회복 젤리 획득 규칙
 
 - 적이 **투사체 히트(일반탄 또는 스킬탄)** 로 인해 처치될 때만 10% 확률로 그 위치(중심)에서 회복 젤리가 드롭된다. 적 접촉 피해로 처치될 때는 드롭되지 않는다 (INV-ITEM-1).
-- 젤리는 좌측(`vx = -90 px/sec`)과 하단(`vy = 120 px/sec`)으로 등속 대각선 이동한다. 화면 경계 클램프가 전혀 적용되지 않으며, 좌측(`x + width < 0`) 또는 하단(`y >= bounds.height`)을 완전히 벗어나면 소멸한다 (INV-ITEM-2).
+- 젤리는 드롭되는 순간의 위치에 고정된 채로 유지되며 이동하지 않는다. 스폰 시점에 `lifetimeRemainSec`을 `BalanceConfig.healingItem.lifetimeSec`(권장 4.0초)으로 초기화하고, 매 틱 `dt`만큼 감소해 0 이하가 되면 소멸한다. `lifetimeRemainSec <= BalanceConfig.healingItem.blinkRemainSec`(권장 1.0초)인 마지막 1초 동안 플레이어 무적 시간과 동일한 100ms 간격 점멸 연출이 적용된다. 수명 만료가 플레이어 픽업보다 먼저 검사되므로, 정확히 수명이 다하는 틱에 플레이어와 겹쳐 있어도 획득이 발생하지 않는다 (INV-ITEM-2).
 - 플레이어가 젤리와 접촉하면: 현재 HP가 최대 HP 미만이면 HP 1을 회복하고, 이미 최대 HP이면 대신 보너스 점수 500점을 획득한다. 두 경우 모두 젤리는 소멸한다 (INV-ITEM-3).
 
 ### 일반탄·스킬탄 발사 규칙
